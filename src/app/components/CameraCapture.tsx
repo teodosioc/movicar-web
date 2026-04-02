@@ -46,14 +46,42 @@ export default function CameraCapture({ type, onCapture }: Props) {
     setCameraReady(false)
   }
 
+  const isMobileDevice = () => {
+    if (typeof navigator === 'undefined') return false
+
+    const userAgent = navigator.userAgent || navigator.vendor || ''
+    const mobileRegex =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
+
+    return mobileRegex.test(userAgent)
+  }
+
   const startCamera = async () => {
     try {
       cleanup()
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: type === 'video',
-      })
+      let stream: MediaStream
+
+      if (isMobileDevice()) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: 'environment' },
+            },
+            audio: type === 'video',
+          })
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: type === 'video',
+          })
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: type === 'video',
+        })
+      }
 
       streamRef.current = stream
 
