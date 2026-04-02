@@ -198,7 +198,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
           disabled={!cameraReady}
           className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          Capturar foto
+          Tirar foto
         </button>
       ) : (
         <button
