@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/app/lib/supabaseClient'
 import InspectionStep from '@/app/components/InspectionStep'
@@ -54,6 +54,10 @@ export default function NewInspectionPage() {
 
     initializeSession()
   }, [selectedVehicle])
+
+  const handleStepCompleted = useCallback(() => {
+    setStepCompleted(true)
+  }, [])
 
   const loadInitialData = async () => {
     try {
@@ -260,7 +264,7 @@ export default function NewInspectionPage() {
                       key={currentItem.id}
                       sessionId={sessionId}
                       item={currentItem}
-                      onCompleted={() => setStepCompleted(true)}
+                      onCompleted={handleStepCompleted}
                     />
                   </div>
 

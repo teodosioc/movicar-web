@@ -174,9 +174,9 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
   }
 
   const handleCapture = async (file: Blob) => {
+    let localPreview: string | null = null
+
     try {
-      const localPreview = URL.createObjectURL(file)
-      setMediaUrl(localPreview)
       setPreviewError(false)
 
       const extension = item.type === 'photo' ? 'jpg' : 'webm'
@@ -258,6 +258,9 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
       }
 
       onCompleted?.()
+
+      localPreview = URL.createObjectURL(file)
+      setMediaUrl(localPreview)
     } catch (err) {
       console.error(err)
       alert('Erro ao enviar mídia')
@@ -351,9 +354,9 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
       ) : (
         <div className="space-y-3">
           <CameraCapture
-          key={`${sessionId}-${item.id}-${item.type}`}
-          type={item.type}
-          onCapture={handleCapture}
+            key={`${sessionId}-${item.id}-${item.type}`}
+            type={item.type}
+            onCapture={handleCapture}
           />
 
           <button
