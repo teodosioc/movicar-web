@@ -17,11 +17,38 @@ export default function CameraCapture({ type, onCapture }: Props) {
   const [status, setStatus] = useState<"idle" | "capturing" | "processing">("idle")
 
   const startCamera = async () => {
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: type === "video",
-      })
+      let stream: MediaStream
+
+      if (isMobile) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+            },
+            audio: type === "video",
+          })
+        } catch (mobileErr) {
+          console.warn(
+            "Não conseguiu abrir câmera traseira, tentando câmera padrão:",
+            mobileErr
+          )
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: type === "video",
+          })
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: type === "video",
+        })
+      }
 
       streamRef.current = stream
 
