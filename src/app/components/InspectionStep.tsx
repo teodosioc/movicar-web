@@ -12,7 +12,7 @@ type Props = {
     name: string
     required: boolean
   }
-  onCompleted?: () => void
+  onCompleted?: (completed: boolean) => void
 }
 
 type GeoData = {
@@ -46,6 +46,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
         console.error('Erro ao buscar mídia:', error)
         setMediaUrl(null)
         setPreviewError(false)
+        onCompleted?.(false)
         setLoading(false)
         return
       }
@@ -62,12 +63,14 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
         if (signedError) {
           console.error('Erro ao gerar signed URL no fetch:', signedError)
           setMediaUrl(null)
+          onCompleted?.(false)
         } else {
           setMediaUrl(signedData.signedUrl)
-          onCompleted?.()
+          onCompleted?.(true)
         }
       } else {
         setMediaUrl(null)
+        onCompleted?.(false)
       }
 
       setPreviewError(false)
@@ -140,8 +143,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
             accuracy: position.coords.accuracy ?? null,
           })
         },
-        (error) => {
-          console.warn('Geolocalização não disponível/autorizada:', error)
+        () => {
           resolve({
             latitude: null,
             longitude: null,
@@ -174,10 +176,10 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
   }
 
   const handleCapture = async (file: Blob) => {
-    let localPreview: string | null = null
-
     try {
+      setLoading(true)
       setPreviewError(false)
+      onCompleted?.(false)
 
       const extension = item.type === 'photo' ? 'jpg' : 'webm'
       const filePath = `${sessionId}/${item.id}/${Date.now()}.${extension}`
@@ -191,9 +193,6 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
         getGeoData(),
         getCurrentUserId(),
       ])
-
-      console.log('UPLOAD → filePath:', filePath)
-      console.log('GEO →', geoData)
 
       const { error: uploadError } = await supabase.storage
         .from('inspections')
@@ -214,7 +213,6 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
         .maybeSingle()
 
       if (existingError) {
-        console.error('Erro ao consultar inspection_media:', existingError)
         throw existingError
       }
 
@@ -239,7 +237,6 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
           .eq('id', existingRecord.id)
 
         if (updateError) {
-          console.error('Erro ao atualizar inspection_media:', updateError)
           throw updateError
         }
       } else {
@@ -252,21 +249,23 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
           })
 
         if (insertError) {
-          console.error('Erro ao inserir inspection_media:', insertError)
           throw insertError
         }
       }
 
-      onCompleted?.()
-
-      localPreview = URL.createObjectURL(file)
-      setMediaUrl(localPreview)
+      const preview = URL.createObjectURL(file)
+      setMediaUrl(preview)
+      setCaptureStarted(false)
+      onCompleted?.(true)
     } catch (err) {
       console.error(err)
       alert('Erro ao enviar mídia')
       setMediaUrl(null)
       setCaptureStarted(false)
       setPreviewError(false)
+      onCompleted?.(false)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -274,6 +273,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
     setMediaUrl(null)
     setCaptureStarted(false)
     setPreviewError(false)
+    onCompleted?.(false)
   }
 
   if (loading) {
@@ -348,7 +348,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
             onClick={() => setCaptureStarted(true)}
             className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white"
           >
-            {item.type === 'video' ? 'Iniciar gravação' : 'Iniciar captura'}
+            {item.type === 'video' ? 'Gravar vídeo' : 'Tirar foto'}
           </button>
         </div>
       ) : (

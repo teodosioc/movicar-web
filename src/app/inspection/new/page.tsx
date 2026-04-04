@@ -39,25 +39,17 @@ export default function NewInspectionPage() {
   }, [currentIndex])
 
   useEffect(() => {
-    const initializeSession = async () => {
-      if (!selectedVehicle) {
-        setSessionId(null)
-        setCurrentIndex(0)
-        setStepCompleted(false)
-        return
-      }
-
-      if (sessionId || creatingSession) return
-
-      await createSession(selectedVehicle)
+    if (!selectedVehicle) {
+      setSessionId(null)
+      setCurrentIndex(0)
+      setStepCompleted(false)
+      return
     }
 
-    initializeSession()
-  }, [selectedVehicle])
+    if (sessionId || creatingSession) return
 
-  const handleStepCompleted = useCallback(() => {
-    setStepCompleted(true)
-  }, [])
+    createSession(selectedVehicle)
+  }, [selectedVehicle])
 
   const loadInitialData = async () => {
     try {
@@ -76,22 +68,13 @@ export default function NewInspectionPage() {
       setVehicles(vehiclesData || [])
     } catch (error) {
       console.error(error)
-      alert('Erro ao carregar dados da vistoria.')
+      alert('Erro ao carregar dados.')
     } finally {
       setLoading(false)
     }
   }
 
-  const createSession = async (vehicleId?: string) => {
-    const finalVehicleId = vehicleId || selectedVehicle
-
-    if (!finalVehicleId) {
-      alert('Selecione um veículo antes de iniciar a vistoria.')
-      return
-    }
-
-    if (sessionId) return
-
+  const createSession = async (vehicleId: string) => {
     try {
       setCreatingSession(true)
 
@@ -99,7 +82,7 @@ export default function NewInspectionPage() {
         .from('inspection_sessions')
         .insert([
           {
-            vehicle_id: finalVehicleId,
+            vehicle_id: vehicleId,
             status: 'in_progress',
             started_at: new Date().toISOString(),
           },
@@ -112,15 +95,19 @@ export default function NewInspectionPage() {
       setSessionId(data.id)
     } catch (error) {
       console.error(error)
-      alert('Erro ao criar sessão da vistoria.')
+      alert('Erro ao criar sessão.')
     } finally {
       setCreatingSession(false)
     }
   }
 
+  const handleStepCompleted = useCallback((completed: boolean) => {
+    setStepCompleted(completed)
+  }, [])
+
   const handleNext = () => {
     if (!stepCompleted) {
-      alert('Capture a mídia antes de avançar.')
+      alert('Capture a mídia antes de continuar.')
       return
     }
 
@@ -157,44 +144,21 @@ export default function NewInspectionPage() {
     router.push('/dashboard')
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('movicar_token')
-    localStorage.removeItem('movicar_user_email')
-    localStorage.removeItem('movicar_user')
-    document.cookie = 'movicar_token=; path=/; max-age=0; samesite=lax'
-    router.push('/login')
-    router.refresh()
-  }
-
-  const progressPercentage = useMemo(() => {
+  const progress = useMemo(() => {
     if (items.length === 0) return 0
     return Math.round(((currentIndex + 1) / items.length) * 100)
   }, [currentIndex, items.length])
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900">
-        <div className="mx-auto max-w-2xl">
-          <p className="text-sm text-slate-600">Carregando vistoria...</p>
-        </div>
-      </div>
-    )
+    return <p className="p-4">Carregando...</p>
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900">
-        <div className="mx-auto max-w-2xl">
-          <p className="text-sm text-slate-600">
-            Nenhum item de vistoria encontrado.
-          </p>
-        </div>
-      </div>
-    )
+  if (!items.length) {
+    return <p className="p-4">Nenhum item encontrado.</p>
   }
 
   const currentItem = items[currentIndex]
-  const isLastStep = currentIndex === items.length - 1
+  const isLast = currentIndex === items.length - 1
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 md:px-6">
@@ -208,7 +172,14 @@ export default function NewInspectionPage() {
           </div>
 
           <button
-            onClick={handleLogout}
+            onClick={() => {
+              localStorage.removeItem('movicar_token')
+              localStorage.removeItem('movicar_user_email')
+              localStorage.removeItem('movicar_user')
+              document.cookie = 'movicar_token=; path=/; max-age=0; samesite=lax'
+              router.push('/login')
+              router.refresh()
+            }}
             className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
           >
             Sair
@@ -222,9 +193,9 @@ export default function NewInspectionPage() {
             className="mb-4 w-full rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 outline-none"
           >
             <option value="">Selecione veículo</option>
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.plate}
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.plate}
               </option>
             ))}
           </select>
@@ -242,61 +213,57 @@ export default function NewInspectionPage() {
                   <span>
                     Etapa {currentIndex + 1} de {items.length}
                   </span>
-                  <span>{progressPercentage}%</span>
+                  <span>{progress}%</span>
                 </div>
 
                 <div className="h-2 rounded bg-slate-200">
                   <div
                     className="h-2 rounded bg-emerald-600 transition-all"
-                    style={{ width: `${progressPercentage}%` }}
+                    style={{ width: `${progress}%` }}
                   />
                 </div>
               </div>
 
-              {creatingSession || !sessionId ? (
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
+                {!sessionId || creatingSession ? (
                   <p className="text-sm text-slate-600">Preparando vistoria...</p>
-                </div>
-              ) : (
-                <>
-                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
-                    <InspectionStep
-                      key={currentItem.id}
-                      sessionId={sessionId}
-                      item={currentItem}
-                      onCompleted={handleStepCompleted}
-                    />
-                  </div>
+                ) : (
+                  <InspectionStep
+                    key={currentItem.id}
+                    sessionId={sessionId}
+                    item={currentItem}
+                    onCompleted={handleStepCompleted}
+                  />
+                )}
+              </div>
 
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={handleBack}
-                      disabled={currentIndex === 0}
-                      className="flex-1 rounded-2xl bg-slate-300 py-2 font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Voltar
-                    </button>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={handleBack}
+                  disabled={currentIndex === 0}
+                  className="flex-1 rounded-2xl bg-slate-300 py-2 font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Voltar
+                </button>
 
-                    {isLastStep ? (
-                      <button
-                        onClick={handleFinish}
-                        disabled={!stepCompleted}
-                        className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Finalizar
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleNext}
-                        disabled={!stepCompleted}
-                        className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Próximo
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
+                {isLast ? (
+                  <button
+                    onClick={handleFinish}
+                    disabled={!stepCompleted}
+                    className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Finalizar
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleNext}
+                    disabled={!stepCompleted}
+                    className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Próximo
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>

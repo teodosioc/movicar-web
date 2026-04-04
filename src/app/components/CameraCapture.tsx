@@ -12,9 +12,17 @@ export default function CameraCapture({ type, onCapture }: Props) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const videoChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  const autoStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [cameraReady, setCameraReady] = useState(false)
   const [status, setStatus] = useState<"idle" | "capturing" | "processing">("idle")
+
+  const clearAutoStopTimeout = () => {
+    if (autoStopTimeoutRef.current) {
+      clearTimeout(autoStopTimeoutRef.current)
+      autoStopTimeoutRef.current = null
+    }
+  }
 
   const startCamera = async () => {
     const isMobile =
@@ -76,6 +84,8 @@ export default function CameraCapture({ type, onCapture }: Props) {
   }
 
   const stopCamera = () => {
+    clearAutoStopTimeout()
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -125,7 +135,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
           }
         },
         "image/jpeg",
-        0.92
+        0.7
       )
     } catch (err) {
       console.error("Erro ao capturar foto:", err)
@@ -160,6 +170,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
           alert("Não foi possível finalizar a gravação.")
           stopCamera()
         } finally {
+          clearAutoStopTimeout()
           mediaRecorderRef.current = null
           videoChunksRef.current = []
           setStatus("idle")
@@ -169,12 +180,21 @@ export default function CameraCapture({ type, onCapture }: Props) {
       mediaRecorderRef.current = recorder
       recorder.start()
       setStatus("capturing")
+
+      clearAutoStopTimeout()
+      autoStopTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+          stopRecording()
+        }
+      }, 30000)
     } catch (err) {
       console.error("Erro ao iniciar gravação:", err)
     }
   }
 
   const stopRecording = () => {
+    clearAutoStopTimeout()
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       setStatus("processing")
       mediaRecorderRef.current.stop()
@@ -185,6 +205,8 @@ export default function CameraCapture({ type, onCapture }: Props) {
     startCamera()
 
     return () => {
+      clearAutoStopTimeout()
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         try {
           mediaRecorderRef.current.stop()
