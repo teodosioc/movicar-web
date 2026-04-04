@@ -37,12 +37,15 @@ export default function CameraCapture({ type, onCapture }: Props) {
           stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 24, max: 24 },
             },
             audio: type === "video",
           })
         } catch (mobileErr) {
           console.warn(
-            "Não conseguiu abrir câmera traseira, tentando câmera padrão:",
+            "Não conseguiu abrir câmera traseira otimizada, tentando câmera padrão:",
             mobileErr
           )
 
@@ -52,10 +55,26 @@ export default function CameraCapture({ type, onCapture }: Props) {
           })
         }
       } else {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: type === "video",
-        })
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 24, max: 24 },
+            },
+            audio: type === "video",
+          })
+        } catch (desktopErr) {
+          console.warn(
+            "Não conseguiu abrir câmera otimizada, tentando câmera padrão:",
+            desktopErr
+          )
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: type === "video",
+          })
+        }
       }
 
       streamRef.current = stream
@@ -69,7 +88,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
           if (playError?.name !== "AbortError") {
             throw playError
           }
-          console.warn("play() interrompido durante remontagem do vídeo:", playError)
+          console.warn("play() interrompido:", playError)
         }
       }
 
@@ -143,13 +162,33 @@ export default function CameraCapture({ type, onCapture }: Props) {
     }
   }
 
+  const createRecorder = (stream: MediaStream) => {
+    const mimeTypes = [
+      "video/webm;codecs=vp8",
+      "video/webm;codecs=vp9",
+      "video/webm",
+    ]
+
+    for (const mimeType of mimeTypes) {
+      try {
+        if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mimeType)) {
+          return new MediaRecorder(stream, { mimeType })
+        }
+      } catch (err) {
+        console.warn(`Mime type não suportado: ${mimeType}`, err)
+      }
+    }
+
+    return new MediaRecorder(stream)
+  }
+
   const startRecording = () => {
     if (!streamRef.current) return
 
     try {
       videoChunksRef.current = []
 
-      const recorder = new MediaRecorder(streamRef.current)
+      const recorder = createRecorder(streamRef.current)
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -189,6 +228,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
       }, 30000)
     } catch (err) {
       console.error("Erro ao iniciar gravação:", err)
+      alert("Não foi possível iniciar a gravação.")
     }
   }
 
