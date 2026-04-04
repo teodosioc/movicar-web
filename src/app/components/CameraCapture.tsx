@@ -4,61 +4,86 @@ import { useEffect, useRef, useState } from 'react'
 
 type Props = {
   type: 'photo' | 'video'
-  onCapture: (file: Blob) => void
+  onCapture: (file: Blob) => void | Promise<void>
 }
+
+type RecordingState = 'idle' | 'recording' | 'processing'
 
 export default function CameraCapture({ type, onCapture }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const videoChunksRef = useRef<Blob[]>([])
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [cameraReady, setCameraReady] = useState(false)
-  const [recording, setRecording] = useState(false)
+  const [recordingState, setRecordingState] = useState<RecordingState>('idle')
 
-  useEffect(() => {
-    startCamera()
-
-    return () => {
-      cleanup()
-    }
-  }, [type])
-
-  const cleanup = () => {
+  const clearTimer = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
       timeoutRef.current = null
     }
+  }
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
+  const stopCamera = () => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => {
+          try {
+            track.stop()
+          } catch (error) {
+            console.warn('Erro ao parar track da câmera:', error)
+          }
+        })
+      }
+    } finally {
       streamRef.current = null
-    }
 
+      if (videoRef.current) {
+        videoRef.current.pause()
+        videoRef.current.srcObject = null
+        videoRef.current.load()
+      }
+
+      setCameraReady(false)
+    }
+  }
+
+  const resetRecorderState = () => {
     mediaRecorderRef.current = null
     videoChunksRef.current = []
-    setRecording(false)
-    setCameraReady(false)
+    setRecordingState('idle')
+  }
+
+  const fullCleanup = () => {
+    clearTimer()
+
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.ondataavailable = null
+        recorder.onstop = null
+        recorder.stop()
+      } catch (error) {
+        console.warn('Erro ao interromper recorder:', error)
+      }
+    }
+
+    stopCamera()
+    resetRecorderState()
   }
 
   const isMobileDevice = () => {
     if (typeof navigator === 'undefined') return false
-
-    const userAgent = navigator.userAgent || navigator.vendor || ''
-    const mobileRegex =
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
-
-    return mobileRegex.test(userAgent)
+    return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent || ''
+    )
   }
 
   const startCamera = async () => {
     try {
-      cleanup()
+      fullCleanup()
 
       let stream: MediaStream
 
@@ -102,6 +127,35 @@ export default function CameraCapture({ type, onCapture }: Props) {
     }
   }
 
+  useEffect(() => {
+    startCamera()
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        fullCleanup()
+      }
+    }
+
+    const handlePageHide = () => {
+      fullCleanup()
+    }
+
+    const handleBeforeUnload = () => {
+      fullCleanup()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      fullCleanup()
+    }
+  }, [type])
+
   const takePhoto = async () => {
     const video = videoRef.current
     if (!video || !cameraReady) {
@@ -130,8 +184,9 @@ export default function CameraCapture({ type, onCapture }: Props) {
       return
     }
 
-    cleanup()
-    onCapture(blob)
+    stopCamera()
+    resetRecorderState()
+    await onCapture(blob)
   }
 
   const startRecording = () => {
@@ -155,63 +210,96 @@ export default function CameraCapture({ type, onCapture }: Props) {
         }
       }
 
-      recorder.onstop = () => {
-        const blob = new Blob(videoChunksRef.current, { type: 'video/webm' })
-        cleanup()
-        onCapture(blob)
+      recorder.onstop = async () => {
+        try {
+          clearTimer()
+          const blob = new Blob(videoChunksRef.current, { type: 'video/webm' })
+          stopCamera()
+          resetRecorderState()
+          await onCapture(blob)
+        } catch (error) {
+          console.error('Erro ao finalizar gravação:', error)
+          alert('Não foi possível finalizar a gravação.')
+          resetRecorderState()
+          stopCamera()
+        }
       }
 
       recorder.start()
-      setRecording(true)
+      setRecordingState('recording')
 
       timeoutRef.current = setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop()
+          stopRecording()
         }
       }, 30000)
     } catch (error) {
       console.error('Erro ao iniciar gravação:', error)
       alert('Não foi possível iniciar a gravação.')
+      setRecordingState('idle')
     }
   }
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop()
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state === 'recording') {
+      setRecordingState('processing')
+      clearTimer()
+      recorder.stop()
     }
   }
 
+  const handleMainAction = async () => {
+    if (type === 'photo') {
+      await takePhoto()
+      return
+    }
+
+    if (recordingState === 'idle') {
+      startRecording()
+      return
+    }
+
+    if (recordingState === 'recording') {
+      stopRecording()
+    }
+  }
+
+  const getButtonLabel = () => {
+    if (type === 'photo') return 'Tirar foto'
+    if (recordingState === 'idle') return 'Gravar vídeo'
+    if (recordingState === 'recording') return 'Parar gravação'
+    return 'Processando...'
+  }
+
+  const isDisabled =
+    !cameraReady || (type === 'video' && recordingState === 'processing')
+
+  const buttonClass =
+    type === 'video' && recordingState === 'recording'
+      ? 'bg-slate-700 hover:bg-slate-800'
+      : 'bg-emerald-600 hover:bg-emerald-700'
+
   return (
     <div className="space-y-3">
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={type === 'photo'}
-        className="w-full rounded-2xl border border-slate-200 bg-black"
-      />
+      <div className="w-full aspect-square overflow-hidden rounded-2xl border border-slate-200 bg-black">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={type === 'photo'}
+          className="h-full w-full object-cover"
+        />
+      </div>
 
-      {type === 'photo' ? (
-        <button
-          type="button"
-          onClick={takePhoto}
-          disabled={!cameraReady}
-          className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-        >
-          Tirar foto
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={recording ? stopRecording : startRecording}
-          disabled={!cameraReady}
-          className={`inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-400 ${
-            recording ? 'bg-slate-700 hover:bg-slate-800' : 'bg-red-600 hover:bg-red-700'
-          }`}
-        >
-          {recording ? 'Parar gravação' : 'Gravar vídeo'}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={handleMainAction}
+        disabled={isDisabled}
+        className={`inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-400 ${buttonClass}`}
+      >
+        {getButtonLabel()}
+      </button>
     </div>
   )
 }
