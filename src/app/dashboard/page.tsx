@@ -48,7 +48,7 @@ type InspectionRow = {
   started_at: string | null;
   finished_at: string | null;
   created_at: string | null;
-  vehicles?: InspectionVehicleRelation[] | null;
+  vehicles?: InspectionVehicleRelation | InspectionVehicleRelation[] | null;
 };
 
 type VehicleRow = {
@@ -176,6 +176,13 @@ function getInspectionStatusBadge(status?: string | null) {
   }
 }
 
+function getInspectionVehicle(
+  vehicles?: InspectionVehicleRelation | InspectionVehicleRelation[] | null
+) {
+  if (!vehicles) return null;
+  return Array.isArray(vehicles) ? vehicles[0] ?? null : vehicles;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -290,6 +297,10 @@ export default function DashboardPage() {
 
   const handleNewInspection = () => {
     router.push("/inspection/new");
+  };
+
+  const handleViewDetails = (id: string) => {
+    router.push(`/dashboard/inspections/${id}`);
   };
 
   const handleOpenMaps = (
@@ -479,13 +490,14 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
-              <div className="hidden grid-cols-6 gap-4 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+              <div className="hidden grid-cols-7 gap-4 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
                 <div>Placa</div>
                 <div>Veículo</div>
                 <div>Motorista</div>
                 <div>Data</div>
                 <div>Status</div>
                 <div>Local</div>
+                <div>Ações</div>
               </div>
 
               {inspections.length === 0 ? (
@@ -498,7 +510,9 @@ export default function DashboardPage() {
                     const statusBadge = getInspectionStatusBadge(
                       inspection.status
                     );
-                    const relatedVehicle = inspection.vehicles?.[0] ?? null;
+                    const relatedVehicle = getInspectionVehicle(
+                      inspection.vehicles
+                    );
                     const plate = relatedVehicle?.plate || "-";
                     const vehicleName = [
                       relatedVehicle?.brand,
@@ -510,7 +524,7 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={inspection.id}
-                        className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-6 md:items-center"
+                        className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-7 md:items-center"
                       >
                         <div>
                           <p className="text-xs text-slate-500 md:hidden">
@@ -580,6 +594,18 @@ export default function DashboardPage() {
                           ) : (
                             <p className="text-sm text-slate-500">-</p>
                           )}
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-slate-500 md:hidden">
+                            Ações
+                          </p>
+                          <button
+                            onClick={() => handleViewDetails(inspection.id)}
+                            className="text-sm font-semibold text-emerald-600 hover:text-emerald-800"
+                          >
+                            Ver detalhes
+                          </button>
                         </div>
                       </div>
                     );

@@ -18,13 +18,34 @@ type Inspection = {
   started_at: string | null;
   finished_at: string | null;
   created_at: string | null;
-  vehicles?: {
-    plate: string;
-    model: string | null;
-    brand: string | null;
-    year: string | null;
-  };
+  vehicles?:
+    | {
+        plate: string;
+        model: string | null;
+        brand: string | null;
+        year: string | null;
+      }
+    | {
+        plate: string;
+        model: string | null;
+        brand: string | null;
+        year: string | null;
+      }[];
 };
+
+type InspectionVehicle = {
+  plate: string;
+  model: string | null;
+  brand: string | null;
+  year: string | null;
+};
+
+function getInspectionVehicle(
+  vehicles?: Inspection["vehicles"] | null
+): InspectionVehicle | null {
+  if (!vehicles) return null;
+  return Array.isArray(vehicles) ? vehicles[0] ?? null : vehicles;
+}
 
 type Media = {
   id: string;
@@ -155,7 +176,8 @@ export default function InspectionDetailPage() {
     );
   }
 
-  const vehicleName = [inspection.vehicles?.brand, inspection.vehicles?.model]
+  const relatedVehicle = getInspectionVehicle(inspection.vehicles);
+  const vehicleName = [relatedVehicle?.brand, relatedVehicle?.model]
     .filter(Boolean)
     .join(" ");
 
@@ -180,7 +202,7 @@ export default function InspectionDetailPage() {
           <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
             <div>
               <p className="text-slate-500">Placa</p>
-              <p className="font-semibold">{inspection.vehicles?.plate || "-"}</p>
+              <p className="font-semibold">{relatedVehicle?.plate || "-"}</p>
             </div>
 
             <div>
