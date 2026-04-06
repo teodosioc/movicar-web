@@ -143,17 +143,43 @@ export default function NewInspectionPage() {
     try {
       setLoading(true)
 
-      const [{ data: itemsData, error: itemsError }, { data: vehiclesData, error: vehiclesError }] =
-        await Promise.all([
-          supabase.from('inspection_items').select('*').order('order_index'),
-          supabase.from('vehicles').select('id, plate, inspection_frequency').order('plate'),
-        ])
+      const loggedUser = getLoggedUser()
+
+      if (!loggedUser?.id) {
+        throw new Error('Usuário não encontrado')
+      }
+
+      const itemsPromise = supabase
+        .from('inspection_items')
+        .select('*')
+        .order('order_index')
+
+      const baseVehiclesQuery = supabase
+        .from('vehicles')
+        .select('id, plate, inspection_frequency')
+
+      const vehiclesPromise =
+        loggedUser.role === 'admin'
+          ? baseVehiclesQuery.eq('active', true).order('plate')
+          : baseVehiclesQuery
+              .eq('assigned_user_id', loggedUser.id)
+              .eq('active', true)
+              .order('plate')
+
+      const [
+        { data: itemsData, error: itemsError },
+        { data: vehiclesData, error: vehiclesError },
+      ] = await Promise.all([itemsPromise, vehiclesPromise])
 
       if (itemsError) throw itemsError
       if (vehiclesError) throw vehiclesError
 
       setItems(itemsData || [])
       setVehicles(vehiclesData || [])
+
+      if (vehiclesData && vehiclesData.length === 1) {
+        setSelectedVehicle(vehiclesData[0].id)
+      }
     } catch (error) {
       console.error(error)
       alert('Erro ao carregar dados.')
