@@ -16,6 +16,20 @@ type InspectionItem = {
 type Vehicle = {
   id: string
   plate: string
+  inspection_frequency?: 'daily' | 'weekly' | 'biweekly' | 'monthly' | null
+}
+
+type MoviCarUser = {
+  id?: string
+  name?: string
+  email?: string
+  role?: string
+  active?: boolean
+}
+
+type GeoData = {
+  latitude: number | null
+  longitude: number | null
 }
 
 export default function NewInspectionPage() {
@@ -29,6 +43,7 @@ export default function NewInspectionPage() {
   const [loading, setLoading] = useState(true)
   const [stepCompleted, setStepCompleted] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
+  const [finishing, setFinishing] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -49,7 +64,80 @@ export default function NewInspectionPage() {
     if (sessionId || creatingSession) return
 
     createSession(selectedVehicle)
-  }, [selectedVehicle])
+  }, [selectedVehicle, sessionId, creatingSession])
+
+  const getLoggedUser = (): MoviCarUser | null => {
+    try {
+      const raw = localStorage.getItem('movicar_user')
+      if (!raw) return null
+      return JSON.parse(raw)
+    } catch (error) {
+      console.error('Erro ao ler usuário logado:', error)
+      return null
+    }
+  }
+
+  const getGeoData = async (): Promise<GeoData> => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return {
+        latitude: null,
+        longitude: null,
+      }
+    }
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude ?? null,
+            longitude: position.coords.longitude ?? null,
+          })
+        },
+        () => {
+          resolve({
+            latitude: null,
+            longitude: null,
+          })
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        }
+      )
+    })
+  }
+
+  const calculateNextInspectionDue = (
+    baseDateIso: string,
+    frequency?: 'daily' | 'weekly' | 'biweekly' | 'monthly' | null
+  ) => {
+    if (!frequency) return null
+
+    const baseDate = new Date(baseDateIso)
+    if (Number.isNaN(baseDate.getTime())) return null
+
+    const nextDate = new Date(baseDate)
+
+    switch (frequency) {
+      case 'daily':
+        nextDate.setDate(nextDate.getDate() + 1)
+        break
+      case 'weekly':
+        nextDate.setDate(nextDate.getDate() + 7)
+        break
+      case 'biweekly':
+        nextDate.setDate(nextDate.getDate() + 15)
+        break
+      case 'monthly':
+        nextDate.setMonth(nextDate.getMonth() + 1)
+        break
+      default:
+        return null
+    }
+
+    return nextDate.toISOString()
+  }
 
   const loadInitialData = async () => {
     try {
@@ -58,7 +146,7 @@ export default function NewInspectionPage() {
       const [{ data: itemsData, error: itemsError }, { data: vehiclesData, error: vehiclesError }] =
         await Promise.all([
           supabase.from('inspection_items').select('*').order('order_index'),
-          supabase.from('vehicles').select('*').order('plate'),
+          supabase.from('vehicles').select('id, plate, inspection_frequency').order('plate'),
         ])
 
       if (itemsError) throw itemsError
@@ -78,13 +166,19 @@ export default function NewInspectionPage() {
     try {
       setCreatingSession(true)
 
+      const loggedUser = getLoggedUser()
+      const geoData = await getGeoData()
+
       const { data, error } = await supabase
         .from('inspection_sessions')
         .insert([
           {
             vehicle_id: vehicleId,
+            driver_id: loggedUser?.id ?? null,
             status: 'in_progress',
             started_at: new Date().toISOString(),
+            latitude: geoData.latitude,
+            longitude: geoData.longitude,
           },
         ])
         .select()
@@ -119,29 +213,107 @@ export default function NewInspectionPage() {
   }
 
   const handleFinish = async () => {
-    if (!sessionId) return
+    if (!sessionId || !selectedVehicle || finishing) return
 
     if (!stepCompleted) {
       alert('Capture a mídia antes de finalizar.')
       return
     }
 
-    const { error } = await supabase
-      .from('inspection_sessions')
-      .update({
-        status: 'completed',
-        finished_at: new Date().toISOString(),
-      })
-      .eq('id', sessionId)
+    try {
+      setFinishing(true)
 
-    if (error) {
+      const finishedAt = new Date().toISOString()
+      const loggedUser = getLoggedUser()
+      const fallbackGeo = await getGeoData()
+
+      const { error: sessionUpdateError } = await supabase
+        .from('inspection_sessions')
+        .update({
+          status: 'completed',
+          finished_at: finishedAt,
+          latitude: fallbackGeo.latitude,
+          longitude: fallbackGeo.longitude,
+        })
+        .eq('id', sessionId)
+
+      if (sessionUpdateError) {
+        throw sessionUpdateError
+      }
+
+      const { data: sessionData, error: sessionFetchError } = await supabase
+        .from('inspection_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+
+      if (sessionFetchError) {
+        throw sessionFetchError
+      }
+
+      const { data: inspectionData, error: inspectionInsertError } = await supabase
+        .from('inspections')
+        .insert({
+          vehicle_id: sessionData.vehicle_id,
+          created_by: loggedUser?.id ?? sessionData.driver_id ?? null,
+          driver_name: loggedUser?.name ?? null,
+          status: 'completed',
+          odometer: null,
+          notes: null,
+          latitude: sessionData.latitude ?? fallbackGeo.latitude,
+          longitude: sessionData.longitude ?? fallbackGeo.longitude,
+          address: null,
+          started_at: sessionData.started_at,
+          finished_at: sessionData.finished_at ?? finishedAt,
+        })
+        .select('id')
+        .single()
+
+      if (inspectionInsertError) {
+        throw inspectionInsertError
+      }
+
+      const inspectionId = inspectionData.id
+
+      const { error: mediaUpdateError } = await supabase
+        .from('inspection_media')
+        .update({
+          inspection_id: inspectionId,
+        })
+        .eq('session_id', sessionId)
+
+      if (mediaUpdateError) {
+        throw mediaUpdateError
+      }
+
+      const selectedVehicleData =
+        vehicles.find((vehicle) => vehicle.id === selectedVehicle) ?? null
+
+      const nextInspectionDue = calculateNextInspectionDue(
+        finishedAt,
+        selectedVehicleData?.inspection_frequency ?? null
+      )
+
+      const { error: vehicleUpdateError } = await supabase
+        .from('vehicles')
+        .update({
+          last_inspection_at: finishedAt,
+          next_inspection_due: nextInspectionDue,
+        })
+        .eq('id', selectedVehicle)
+
+      if (vehicleUpdateError) {
+        throw vehicleUpdateError
+      }
+
+      alert('Vistoria finalizada com sucesso!')
+      router.push('/dashboard')
+    } catch (error) {
       console.error(error)
       alert('Erro ao finalizar vistoria.')
-      return
+    } finally {
+      setFinishing(false)
     }
-
-    alert('Vistoria finalizada com sucesso!')
-    router.push('/dashboard')
   }
 
   const progress = useMemo(() => {
@@ -240,7 +412,7 @@ export default function NewInspectionPage() {
               <div className="mt-4 flex gap-2">
                 <button
                   onClick={handleBack}
-                  disabled={currentIndex === 0}
+                  disabled={currentIndex === 0 || finishing}
                   className="flex-1 rounded-2xl bg-slate-300 py-2 font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Voltar
@@ -249,15 +421,15 @@ export default function NewInspectionPage() {
                 {isLast ? (
                   <button
                     onClick={handleFinish}
-                    disabled={!stepCompleted}
+                    disabled={!stepCompleted || finishing}
                     className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Finalizar
+                    {finishing ? 'Finalizando...' : 'Finalizar'}
                   </button>
                 ) : (
                   <button
                     onClick={handleNext}
-                    disabled={!stepCompleted}
+                    disabled={!stepCompleted || finishing}
                     className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Próximo

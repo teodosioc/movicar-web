@@ -1,17 +1,5 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="80" fill="#0B0B0B"></rect>
-
-  <!-- M + carro integrado -->
-  <path d="M120 300 
-           L180 200 
-           L256 260 
-           L332 200 
-           L392 300" fill="none" stroke="#F5F5F5" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"></path>
-
-  <!-- linha base do carro -->
-  <line x1="140" y1="300" x2="372" y2="300" stroke="#C1121F" stroke-width="10" stroke-linecap="round"></line>
-
-  <!-- rodas sutis -->
-  <circle cx="180" cy="330" r="10" fill="#F5F5F5"></circle>
-  <circle cx="332" cy="330" r="10" fill="#F5F5F5"></circle>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="14" fill="#DC2626"></rect>
+  
+  <path d="M20 33L28 41L44 23" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
 </svg>
