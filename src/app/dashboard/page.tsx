@@ -14,6 +14,7 @@ import {
   UserCircle2,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabaseClient";
+import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
 
 type MoviCarUser = {
   id?: string;
@@ -190,6 +191,9 @@ export default function DashboardPage() {
   const [user, setUser] = useState<MoviCarUser | null>(null);
   const [inspections, setInspections] = useState<InspectionRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
+  const [kmTraveledByInspectionId, setKmTraveledByInspectionId] = useState<
+    Record<string, number | null>
+  >({});
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -274,7 +278,25 @@ export default function DashboardPage() {
         if (inspectionsRes.error) throw inspectionsRes.error;
         if (vehiclesRes.error) throw vehiclesRes.error;
 
-        setInspections((inspectionsRes.data ?? []) as InspectionRow[]);
+        const inspectionRows = (inspectionsRes.data ?? []) as InspectionRow[];
+        const vehicleIds = [
+          ...new Set(inspectionRows.map((r) => r.vehicle_id)),
+        ];
+
+        let kmMap: Record<string, number | null> = {};
+        if (vehicleIds.length > 0) {
+          const { data: historyRows, error: historyError } = await supabase
+            .from("inspections")
+            .select("id, vehicle_id, odometer, finished_at, created_at")
+            .in("vehicle_id", vehicleIds)
+            .not("odometer", "is", null);
+
+          if (historyError) throw historyError;
+          kmMap = buildKmTraveledByInspectionId(historyRows ?? []);
+        }
+
+        setInspections(inspectionRows);
+        setKmTraveledByInspectionId(kmMap);
         setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
@@ -469,32 +491,27 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <section className="mt-5 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
           <div className="xl:col-span-2 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">
-                  Vistorias recentes
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Últimas inspeções registradas no sistema.
-                </p>
-              </div>
-
-              <button
-                onClick={handleNewInspection}
-                className="hidden rounded-2xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 md:block"
-              >
-                Nova vistoria
-              </button>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                Vistorias recentes
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Últimas inspeções registradas no sistema.
+              </p>
             </div>
 
-            <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
-              <div className="hidden grid-cols-7 gap-4 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+            <div className="mt-5 rounded-3xl border border-slate-200">
+              <div className="overflow-x-auto">
+                <div className="min-w-0 md:min-w-[56rem]">
+              <div className="hidden grid-cols-9 gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
                 <div>Placa</div>
                 <div>Veículo</div>
                 <div>Motorista</div>
                 <div>Data</div>
+                <div>KM</div>
+                <div>KM período</div>
                 <div>Status</div>
                 <div>Local</div>
                 <div>Ações</div>
@@ -505,7 +522,7 @@ export default function DashboardPage() {
                   Nenhuma vistoria encontrada.
                 </div>
               ) : (
-                <div className="divide-y divide-slate-200">
+                <div className="divide-y divide-slate-200 bg-white">
                   {inspections.map((inspection) => {
                     const statusBadge = getInspectionStatusBadge(
                       inspection.status
@@ -524,7 +541,7 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={inspection.id}
-                        className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-7 md:items-center"
+                        className="grid grid-cols-1 gap-3 px-4 py-3 odd:bg-white even:bg-slate-50/70 md:grid-cols-9 md:items-center md:gap-3 md:py-3.5"
                       >
                         <div>
                           <p className="text-xs text-slate-500 md:hidden">
@@ -564,6 +581,30 @@ export default function DashboardPage() {
 
                         <div>
                           <p className="text-xs text-slate-500 md:hidden">
+                            KM
+                          </p>
+                          <p className="text-sm text-slate-700">
+                            {inspection.odometer != null
+                              ? inspection.odometer.toLocaleString("pt-BR")
+                              : "-"}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-slate-500 md:hidden">
+                            KM período
+                          </p>
+                          <p className="text-sm text-slate-700">
+                            {kmTraveledByInspectionId[inspection.id] != null
+                              ? kmTraveledByInspectionId[
+                                  inspection.id
+                                ]!.toLocaleString("pt-BR")
+                              : "-"}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-slate-500 md:hidden">
                             Status
                           </p>
                           <span
@@ -580,16 +621,17 @@ export default function DashboardPage() {
                           {inspection.latitude != null &&
                           inspection.longitude != null ? (
                             <button
+                              type="button"
                               onClick={() =>
                                 handleOpenMaps(
                                   inspection.latitude,
                                   inspection.longitude
                                 )
                               }
-                              className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50"
                             >
                               <MapPin size={14} />
-                              Ver mapa
+                              Mapa
                             </button>
                           ) : (
                             <p className="text-sm text-slate-500">-</p>
@@ -601,10 +643,11 @@ export default function DashboardPage() {
                             Ações
                           </p>
                           <button
+                            type="button"
                             onClick={() => handleViewDetails(inspection.id)}
-                            className="text-sm font-semibold text-emerald-600 hover:text-emerald-800"
+                            className="inline-flex rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/90"
                           >
-                            Ver detalhes
+                            Detalhes
                           </button>
                         </div>
                       </div>
@@ -612,6 +655,8 @@ export default function DashboardPage() {
                   })}
                 </div>
               )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -623,51 +668,51 @@ export default function DashboardPage() {
               Status das periodicidades configuradas por veículo.
             </p>
 
-            <div className="mt-5 space-y-4">
-              <div className="rounded-2xl bg-emerald-50 p-4">
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-emerald-50 p-3 sm:p-4">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-emerald-600" />
-                  <p className="text-sm font-semibold text-emerald-800">
+                  <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                  <p className="text-xs font-semibold text-emerald-800 sm:text-sm">
                     Em dia
                   </p>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-emerald-900">
+                <p className="mt-2 text-xl font-bold text-emerald-900 sm:text-2xl">
                   {vehicleStats.onTime}
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-amber-50 p-4">
+              <div className="rounded-2xl bg-amber-50 p-3 sm:p-4">
                 <div className="flex items-center gap-2">
-                  <CalendarClock size={18} className="text-amber-600" />
-                  <p className="text-sm font-semibold text-amber-800">
+                  <CalendarClock size={18} className="shrink-0 text-amber-600" />
+                  <p className="text-xs font-semibold text-amber-800 sm:text-sm">
                     Vence hoje
                   </p>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-amber-900">
+                <p className="mt-2 text-xl font-bold text-amber-900 sm:text-2xl">
                   {vehicleStats.dueToday}
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-red-50 p-4">
+              <div className="rounded-2xl bg-red-50 p-3 sm:p-4">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle size={18} className="text-red-600" />
-                  <p className="text-sm font-semibold text-red-800">
+                  <AlertTriangle size={18} className="shrink-0 text-red-600" />
+                  <p className="text-xs font-semibold text-red-800 sm:text-sm">
                     Atrasada
                   </p>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-red-900">
+                <p className="mt-2 text-xl font-bold text-red-900 sm:text-2xl">
                   {vehicleStats.overdue}
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="rounded-2xl bg-slate-50 p-3 sm:p-4">
                 <div className="flex items-center gap-2">
-                  <UserCircle2 size={18} className="text-slate-600" />
-                  <p className="text-sm font-semibold text-slate-700">
+                  <UserCircle2 size={18} className="shrink-0 text-slate-600" />
+                  <p className="text-xs font-semibold text-slate-700 sm:text-sm">
                     Pendente inicial
                   </p>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
+                <p className="mt-2 text-xl font-bold text-slate-900 sm:text-2xl">
                   {vehicleStats.pendingInitial}
                 </p>
               </div>

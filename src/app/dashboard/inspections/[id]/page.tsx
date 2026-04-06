@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
+import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
 import { ArrowLeft, MapPin, X } from "lucide-react";
 
 type Inspection = {
@@ -63,6 +64,9 @@ export default function InspectionDetailPage() {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [media, setMedia] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
+  const [kmTraveledInPeriod, setKmTraveledInPeriod] = useState<number | null>(
+    null
+  );
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,6 +106,19 @@ export default function InspectionDetailPage() {
 
       if (inspectionError) throw inspectionError;
 
+      let kmPeriod: number | null = null;
+      if (inspectionData.vehicle_id) {
+        const { data: histRows, error: histError } = await supabase
+          .from("inspections")
+          .select("id, vehicle_id, odometer, finished_at, created_at")
+          .eq("vehicle_id", inspectionData.vehicle_id)
+          .not("odometer", "is", null);
+
+        if (histError) throw histError;
+        const map = buildKmTraveledByInspectionId(histRows ?? []);
+        kmPeriod = map[inspectionId] ?? null;
+      }
+
       const { data: mediaData, error: mediaError } = await supabase
         .from("inspection_media")
         .select("*")
@@ -134,9 +151,11 @@ export default function InspectionDetailPage() {
       );
 
       setInspection(inspectionData);
+      setKmTraveledInPeriod(kmPeriod);
       setMedia(mediaWithUrls);
     } catch (err) {
       console.error(err);
+      setKmTraveledInPeriod(null);
       alert("Erro ao carregar vistoria");
     } finally {
       setLoading(false);
@@ -227,7 +246,24 @@ export default function InspectionDetailPage() {
 
             <div>
               <p className="text-slate-500">KM</p>
-              <p>{inspection.odometer ?? "-"}</p>
+              <p>
+                {inspection.odometer != null
+                  ? inspection.odometer.toLocaleString("pt-BR")
+                  : "-"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-slate-500">KM no período</p>
+              <p>
+                {kmTraveledInPeriod != null
+                  ? kmTraveledInPeriod.toLocaleString("pt-BR")
+                  : "-"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Diferença em relação à vistoria anterior deste veículo com
+                quilometragem registrada.
+              </p>
             </div>
           </div>
 

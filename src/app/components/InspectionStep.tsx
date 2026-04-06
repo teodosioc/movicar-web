@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
+import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
 import CameraCapture from './CameraCapture'
 
 type Props = {
@@ -112,13 +113,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
       return '/examples/lateral-esquerda.png'
     }
 
-    if (
-      normalizedName.includes('quilometragem') ||
-      normalizedName.includes('velocimetro') ||
-      normalizedName.includes('velocímetro') ||
-      normalizedId.includes('quilometragem') ||
-      normalizedId.includes('velocimetro')
-    ) {
+    if (isOdometerPhotoItem(item)) {
       return '/examples/quilometragem-velocimetro.png'
     }
 

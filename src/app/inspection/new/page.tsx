@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/app/lib/supabaseClient'
 import InspectionStep from '@/app/components/InspectionStep'
+import OdometerStep from '@/app/components/OdometerStep'
+import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
+import { isValidOdometerKm } from '@/app/lib/odometerKm'
 
 type InspectionItem = {
   id: string
@@ -12,6 +15,10 @@ type InspectionItem = {
   required: boolean
   order_index: number
 }
+
+type WizardStep =
+  | { kind: 'media'; item: InspectionItem }
+  | { kind: 'odometer' }
 
 type Vehicle = {
   id: string
@@ -44,6 +51,7 @@ export default function NewInspectionPage() {
   const [stepCompleted, setStepCompleted] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [odometerKm, setOdometerKm] = useState('')
 
   useEffect(() => {
     loadInitialData()
@@ -58,6 +66,7 @@ export default function NewInspectionPage() {
       setSessionId(null)
       setCurrentIndex(0)
       setStepCompleted(false)
+      setOdometerKm('')
       return
     }
 
@@ -225,13 +234,35 @@ export default function NewInspectionPage() {
     setStepCompleted(completed)
   }, [])
 
+  const wizardSteps = useMemo((): WizardStep[] => {
+    const out: WizardStep[] = []
+    for (const item of items) {
+      out.push({ kind: 'media', item })
+      if (isOdometerPhotoItem(item)) {
+        out.push({ kind: 'odometer' })
+      }
+    }
+    return out
+  }, [items])
+
+  const currentWizardStep = wizardSteps[currentIndex]
+
+  useEffect(() => {
+    if (!currentWizardStep || currentWizardStep.kind !== 'odometer') return
+    setStepCompleted(isValidOdometerKm(odometerKm))
+  }, [currentIndex, currentWizardStep, odometerKm])
+
   const handleNext = () => {
     if (!stepCompleted) {
-      alert('Capture a mídia antes de continuar.')
+      if (currentWizardStep?.kind === 'odometer') {
+        alert('Informe a quilometragem antes de continuar.')
+      } else {
+        alert('Capture a mídia antes de continuar.')
+      }
       return
     }
 
-    setCurrentIndex((prev) => Math.min(prev + 1, items.length - 1))
+    setCurrentIndex((prev) => Math.min(prev + 1, wizardSteps.length - 1))
   }
 
   const handleBack = () => {
@@ -242,7 +273,11 @@ export default function NewInspectionPage() {
     if (!sessionId || !selectedVehicle || finishing) return
 
     if (!stepCompleted) {
-      alert('Capture a mídia antes de finalizar.')
+      if (currentWizardStep?.kind === 'odometer') {
+        alert('Informe a quilometragem antes de finalizar.')
+      } else {
+        alert('Capture a mídia antes de finalizar.')
+      }
       return
     }
 
@@ -277,6 +312,10 @@ export default function NewInspectionPage() {
         throw sessionFetchError
       }
 
+      const odometerValue = isValidOdometerKm(odometerKm)
+        ? Number.parseInt(odometerKm, 10)
+        : null
+
       const { data: inspectionData, error: inspectionInsertError } = await supabase
         .from('inspections')
         .insert({
@@ -284,7 +323,7 @@ export default function NewInspectionPage() {
           created_by: loggedUser?.id ?? sessionData.driver_id ?? null,
           driver_name: loggedUser?.name ?? null,
           status: 'completed',
-          odometer: null,
+          odometer: odometerValue,
           notes: null,
           latitude: sessionData.latitude ?? fallbackGeo.latitude,
           longitude: sessionData.longitude ?? fallbackGeo.longitude,
@@ -343,9 +382,9 @@ export default function NewInspectionPage() {
   }
 
   const progress = useMemo(() => {
-    if (items.length === 0) return 0
-    return Math.round(((currentIndex + 1) / items.length) * 100)
-  }, [currentIndex, items.length])
+    if (wizardSteps.length === 0) return 0
+    return Math.round(((currentIndex + 1) / wizardSteps.length) * 100)
+  }, [currentIndex, wizardSteps.length])
 
   if (loading) {
     return <p className="p-4">Carregando...</p>
@@ -355,8 +394,7 @@ export default function NewInspectionPage() {
     return <p className="p-4">Nenhum item encontrado.</p>
   }
 
-  const currentItem = items[currentIndex]
-  const isLast = currentIndex === items.length - 1
+  const isLast = currentIndex === wizardSteps.length - 1
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 md:px-6">
@@ -409,7 +447,7 @@ export default function NewInspectionPage() {
               <div className="mb-4">
                 <div className="mb-1 flex justify-between text-sm text-slate-700">
                   <span>
-                    Etapa {currentIndex + 1} de {items.length}
+                    Etapa {currentIndex + 1} de {wizardSteps.length}
                   </span>
                   <span>{progress}%</span>
                 </div>
@@ -425,14 +463,16 @@ export default function NewInspectionPage() {
               <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
                 {!sessionId || creatingSession ? (
                   <p className="text-sm text-slate-600">Preparando vistoria...</p>
-                ) : (
+                ) : currentWizardStep?.kind === 'media' ? (
                   <InspectionStep
-                    key={currentItem.id}
+                    key={currentWizardStep.item.id}
                     sessionId={sessionId}
-                    item={currentItem}
+                    item={currentWizardStep.item}
                     onCompleted={handleStepCompleted}
                   />
-                )}
+                ) : currentWizardStep?.kind === 'odometer' ? (
+                  <OdometerStep value={odometerKm} onChange={setOdometerKm} />
+                ) : null}
               </div>
 
               <div className="mt-4 flex gap-2">
