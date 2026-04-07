@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     default: "MoviCar",
     template: "%s | MoviCar",
   },
-  description: "Vistoria veicular digital",
+  description: "Vistoria veicular digital v3",
 };
 
 export default function RootLayout({
