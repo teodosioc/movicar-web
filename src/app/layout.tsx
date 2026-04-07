@@ -18,8 +18,10 @@ export const metadata = {
     template: "%s | MoviCar",
   },
   description: "Vistoria veicular digital",
+  verification: {
+    google: "lbwQ_FA7SxcX"
+  }, 
 };
-
 export default function RootLayout({
   children,
 }: Readonly<{

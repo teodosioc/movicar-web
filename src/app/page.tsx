@@ -58,7 +58,7 @@ export default function HomePage() {
             </Link>
 
             <a
-              href="https://wa.me/5511999999999?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
+              href="https://wa.me/5511987542171?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
@@ -112,7 +112,7 @@ export default function HomePage() {
                 </Link>
 
                 <a
-                  href="https://wa.me/5511999999999?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
+                  href="https://wa.me/5511987542171?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-12 items-center justify-center rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-700"
@@ -160,7 +160,7 @@ export default function HomePage() {
               </Link>
 
               <a
-                href="https://wa.me/5511999999999?text=Olá!%20Quero%20solicitar%20uma%20demonstração%20do%20MoviCar."
+                href="https://wa.me/5511987542171?text=Olá!%20Quero%20solicitar%20uma%20demonstração%20do%20MoviCar."
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-700 transition hover:bg-zinc-50"
@@ -439,7 +439,7 @@ export default function HomePage() {
             </Link>
 
             <a
-              href="https://wa.me/5511999999999?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
+              href="https://wa.me/5511987542171?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-zinc-700 px-6 py-3 text-base font-semibold text-white transition hover:bg-zinc-900"
@@ -459,7 +459,7 @@ export default function HomePage() {
               Login
             </Link>
             <a
-              href="https://wa.me/5511999999999?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
+              href="https://wa.me/5511987542171?text=Olá!%20Quero%20conhecer%20o%20MoviCar."
               target="_blank"
               rel="noopener noreferrer"
               className="transition hover:text-red-400"
