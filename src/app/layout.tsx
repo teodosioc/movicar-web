@@ -33,7 +33,7 @@ export default function RootLayout({
       <head>
         <meta
           name="google-site-verification"
-          content="lbwQ_FA7SxcX"
+          content="IbwvQ_FA7SxCXJ5zyPqdDsMa6NNmW9hdoxi7mHJYz9k"
         />
       </head>
       <body className="min-h-full flex flex-col">
