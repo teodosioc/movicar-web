@@ -12,16 +12,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: {
     default: "MoviCar",
     template: "%s | MoviCar",
   },
   description: "Vistoria veicular digital",
-  verification: {
-    google: "lbwQ_FA7SxcX"
-  }, 
 };
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -29,9 +27,15 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <meta
+          name="google-site-verification"
+          content="lbwQ_FA7SxcX"
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
