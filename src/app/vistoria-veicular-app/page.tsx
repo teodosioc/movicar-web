@@ -63,8 +63,43 @@ export default function VistoriaVeicularAppPage() {
 
         <p className="mt-3 text-zinc-600">
           O uso de um app de vistoria é especialmente útil para locadoras,
-          frotistas, oficinas, empresas com veículos operacionais e qualquer
-          operação que precise de mais controle, padrão e rastreabilidade.
+          frotistas, oficinas e empresas.
+        </p>
+
+        {/* 🔥 LINK FROTA */}
+        <p className="mt-4 text-zinc-600">
+          Para empresas, veja também como fazer{" "}
+          <Link
+            href="/vistoria-veicular-frota"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para frotas
+          </Link>{" "}
+          e melhorar o controle operacional.
+        </p>
+
+        {/* 🔥 LINK LOCAÇÃO */}
+        <p className="mt-4 text-zinc-600">
+          Em operações de aluguel, veja também como fazer{" "}
+          <Link
+            href="/vistoria-veicular-locacao"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para locação
+          </Link>{" "}
+          e evitar prejuízos.
+        </p>
+
+        {/* 🔥 NOVO LINK UBER */}
+        <p className="mt-4 text-zinc-600">
+          Motoristas de aplicativo também podem aplicar esse processo. Veja como fazer{" "}
+          <Link
+            href="/vistoria-veicular-uber"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para Uber
+          </Link>{" "}
+          de forma simples e segura.
         </p>
 
         <div className="mt-8 rounded-2xl border bg-zinc-50 p-6">
@@ -74,37 +109,33 @@ export default function VistoriaVeicularAppPage() {
 
           <ul className="mt-3 space-y-2 text-zinc-700">
             <li>📸 Captura de fotos guiadas</li>
-            <li>🎥 Vídeo 360 do veículo</li>
-            <li>📋 Fluxo estruturado de vistoria</li>
-            <li>📍 Registro de localização</li>
-            <li>🗂️ Histórico centralizado das inspeções</li>
+            <li>🎥 Vídeo 360</li>
+            <li>📋 Checklist estruturado</li>
+            <li>📍 Localização</li>
+            <li>🗂️ Histórico</li>
           </ul>
 
-          <div className="mt-5 flex flex-wrap gap-3">
+          <div className="mt-5 flex gap-3">
             <Link
               href="/login"
-              className="inline-flex rounded-xl bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-700"
+              className="bg-red-600 text-white px-6 py-3 rounded-xl font-semibold"
             >
               Acessar sistema
             </Link>
 
             <Link
               href="/checklist-vistoria-veicular"
-              className="inline-flex rounded-xl border border-zinc-300 px-6 py-3 font-semibold text-zinc-700 transition hover:bg-zinc-100"
+              className="border px-6 py-3 rounded-xl font-semibold"
             >
-              Ver checklist completo
+              Ver checklist
             </Link>
           </div>
         </div>
 
-        <h2 className="mt-10 text-2xl font-semibold">
-          Conclusão
-        </h2>
+        <h2 className="mt-10 text-2xl font-semibold">Conclusão</h2>
 
         <p className="mt-3 text-zinc-600">
-          A vistoria veicular pelo celular traz mais organização, rapidez e
-          segurança para a operação. Com um app adequado, o processo fica mais
-          simples de executar e muito mais confiável para consulta futura.
+          A vistoria veicular pelo celular traz mais organização e segurança.
         </p>
       </div>
     </main>

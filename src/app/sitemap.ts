@@ -26,5 +26,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.8,
     },
+    {
+      url: "https://www.movicarweb.com.br/vistoria-veicular-frota",
+      lastModified: new Date(),
+    },
+    {
+      url: "https://www.movicarweb.com.br/vistoria-veicular-uber",
+      lastModified: new Date(),
+    },
   ];
 }

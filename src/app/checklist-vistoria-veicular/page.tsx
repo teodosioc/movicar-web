@@ -68,6 +68,30 @@ export default function ChecklistPage() {
           organizar esse processo e manter um histórico completo.
         </p>
 
+        {/* 🔥 LINK FROTA (já existia) */}
+        <p className="mt-4 text-zinc-600">
+          Para empresas, veja como aplicar esse processo em{" "}
+          <Link
+            href="/vistoria-veicular-frota"
+            className="text-red-600 underline font-semibold"
+          >
+            frotas de veículos
+          </Link>{" "}
+          e melhorar o controle da operação.
+        </p>
+
+        {/* 🔥 NOVO LINK SEO PARA UBER */}
+        <p className="mt-4 text-zinc-600">
+          Se você é motorista de aplicativo, veja como fazer{" "}
+          <Link
+            href="/vistoria-veicular-uber"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para Uber
+          </Link>{" "}
+          de forma simples e segura.
+        </p>
+
         {/* BLOCO MOVICAR */}
         <div className="mt-8 rounded-2xl bg-zinc-50 p-6 border">
           <h3 className="text-lg font-semibold">
@@ -81,7 +105,16 @@ export default function ChecklistPage() {
             <li>📍 Registro de localização</li>
             <li>📊 Histórico completo de vistorias</li>
           </ul>
-
+          <p className="mt-4 text-zinc-600">
+            Para entender melhor o processo, veja{" "}
+            <Link
+              href="/vistoria-veicular-app"
+              className="text-red-600 underline font-semibold"
+            >
+              como fazer vistoria veicular pelo celular
+            </Link>{" "}
+            de forma prática e padronizada.
+          </p>
           <Link
             href="/login"
             className="inline-block mt-5 bg-red-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-red-700"

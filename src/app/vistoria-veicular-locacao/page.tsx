@@ -73,6 +73,54 @@ export default function VistoriaLocacaoPage() {
           <li>❌ Perda de histórico</li>
         </ul>
 
+        {/* 🔥 LINK SEO PARA CHECKLIST */}
+        <p className="mt-4 text-zinc-600">
+          Para garantir um processo completo, veja também o{" "}
+          <Link
+            href="/checklist-vistoria-veicular"
+            className="text-red-600 underline font-semibold"
+          >
+            checklist de vistoria veicular completo
+          </Link>{" "}
+          e evite falhas durante a inspeção.
+        </p>
+
+        {/* 🔥 LINK SEO PARA APP */}
+        <p className="mt-4 text-zinc-600">
+          Além disso, utilizar tecnologia ajuda muito. Veja como fazer{" "}
+          <Link
+            href="/vistoria-veicular-app"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular pelo celular
+          </Link>{" "}
+          de forma prática e padronizada.
+        </p>
+
+        {/* 🔥 NOVO LINK SEO PARA FROTA */}
+        <p className="mt-4 text-zinc-600">
+          Se você trabalha com vários veículos, veja também como aplicar{" "}
+          <Link
+            href="/vistoria-veicular-frota"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para frotas
+          </Link>{" "}
+          e melhorar o controle da operação.
+        </p>
+
+        {/* 🔥 NOVO LINK SEO PARA UBER */}
+        <p className="mt-4 text-zinc-600">
+          Muitos veículos alugados também são usados em aplicativos. Veja como fazer{" "}
+          <Link
+            href="/vistoria-veicular-uber"
+            className="text-red-600 underline font-semibold"
+          >
+            vistoria veicular para Uber
+          </Link>{" "}
+          de forma simples e segura.
+        </p>
+
         <div className="mt-8 rounded-2xl border bg-zinc-50 p-6">
           <h3 className="text-lg font-semibold">
             Como o MoviCar resolve isso
@@ -86,10 +134,10 @@ export default function VistoriaLocacaoPage() {
             <li>📍 Registro de localização</li>
           </ul>
 
-          <div className="mt-5 flex gap-3">
+          <div className="mt-5 flex flex-wrap gap-3">
             <Link
               href="/login"
-              className="bg-red-600 text-white px-6 py-3 rounded-xl font-semibold"
+              className="bg-red-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-red-700"
             >
               Acessar sistema
             </Link>
@@ -108,9 +156,8 @@ export default function VistoriaLocacaoPage() {
         </h2>
 
         <p className="mt-3 text-zinc-600">
-          A vistoria veicular na locação não é opcional — é uma necessidade para
-          qualquer operação que queira reduzir riscos e ter controle real sobre
-          seus veículos.
+          A vistoria veicular na locação não é opcional — é essencial para reduzir
+          riscos, evitar prejuízos e manter controle sobre o estado dos veículos.
         </p>
 
       </div>
