@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useCallback } from "react"
 
 type Props = {
   type: "photo" | "video"
@@ -8,6 +9,9 @@ type Props = {
 }
 
 export default function CameraCapture({ type, onCapture }: Props) {
+  const isAbortError = (error: unknown): error is { name?: string } =>
+    typeof error === "object" && error !== null && "name" in error
+
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const videoChunksRef = useRef<Blob[]>([])
@@ -17,14 +21,14 @@ export default function CameraCapture({ type, onCapture }: Props) {
   const [cameraReady, setCameraReady] = useState(false)
   const [status, setStatus] = useState<"idle" | "capturing" | "processing">("idle")
 
-  const clearAutoStopTimeout = () => {
+  const clearAutoStopTimeout = useCallback(() => {
     if (autoStopTimeoutRef.current) {
       clearTimeout(autoStopTimeoutRef.current)
       autoStopTimeoutRef.current = null
     }
-  }
+  }, [])
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     const isMobile =
       typeof navigator !== "undefined" &&
       /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
@@ -84,8 +88,8 @@ export default function CameraCapture({ type, onCapture }: Props) {
 
         try {
           await videoRef.current.play()
-        } catch (playError: any) {
-          if (playError?.name !== "AbortError") {
+        } catch (playError: unknown) {
+          if (!isAbortError(playError) || playError.name !== "AbortError") {
             throw playError
           }
           console.warn("play() interrompido:", playError)
@@ -93,16 +97,16 @@ export default function CameraCapture({ type, onCapture }: Props) {
       }
 
       setCameraReady(true)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Erro ao acessar câmera:", err)
 
-      if (err?.name !== "AbortError") {
+      if (!isAbortError(err) || err.name !== "AbortError") {
         alert("Não foi possível acessar a câmera.")
       }
     }
-  }
+  }, [type])
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     clearAutoStopTimeout()
 
     if (streamRef.current) {
@@ -116,7 +120,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
     }
 
     setCameraReady(false)
-  }
+  }, [clearAutoStopTimeout])
 
   const takePhoto = async () => {
     if (!videoRef.current) return
@@ -232,14 +236,14 @@ export default function CameraCapture({ type, onCapture }: Props) {
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     clearAutoStopTimeout()
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       setStatus("processing")
       mediaRecorderRef.current.stop()
     }
-  }
+  }, [clearAutoStopTimeout])
 
   useEffect(() => {
     startCamera()
@@ -257,7 +261,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
 
       stopCamera()
     }
-  }, [])
+  }, [clearAutoStopTimeout, startCamera, stopCamera])
 
   return (
     <div className="space-y-4">

@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
@@ -118,7 +119,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
     }
 
     return null
-  }, [item.id, item.name])
+  }, [item])
 
   const getGeoData = async (): Promise<GeoData> => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {

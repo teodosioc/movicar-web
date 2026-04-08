@@ -54,26 +54,8 @@ export default function NewInspectionPage() {
   const [odometerKm, setOdometerKm] = useState('')
 
   useEffect(() => {
-    loadInitialData()
-  }, [])
-
-  useEffect(() => {
     setStepCompleted(false)
   }, [currentIndex])
-
-  useEffect(() => {
-    if (!selectedVehicle) {
-      setSessionId(null)
-      setCurrentIndex(0)
-      setStepCompleted(false)
-      setOdometerKm('')
-      return
-    }
-
-    if (sessionId || creatingSession) return
-
-    createSession(selectedVehicle)
-  }, [selectedVehicle, sessionId, creatingSession])
 
   const getLoggedUser = (): MoviCarUser | null => {
     try {
@@ -148,7 +130,7 @@ export default function NewInspectionPage() {
     return nextDate.toISOString()
   }
 
-  const loadInitialData = async () => {
+  const loadInitialData = useCallback(async () => {
     try {
       setLoading(true)
 
@@ -195,9 +177,9 @@ export default function NewInspectionPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const createSession = async (vehicleId: string) => {
+  const createSession = useCallback(async (vehicleId: string) => {
     try {
       setCreatingSession(true)
 
@@ -228,7 +210,25 @@ export default function NewInspectionPage() {
     } finally {
       setCreatingSession(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadInitialData()
+  }, [loadInitialData])
+
+  useEffect(() => {
+    if (!selectedVehicle) {
+      setSessionId(null)
+      setCurrentIndex(0)
+      setStepCompleted(false)
+      setOdometerKm('')
+      return
+    }
+
+    if (sessionId || creatingSession) return
+
+    createSession(selectedVehicle)
+  }, [selectedVehicle, sessionId, creatingSession, createSession])
 
   const handleStepCompleted = useCallback((completed: boolean) => {
     setStepCompleted(completed)

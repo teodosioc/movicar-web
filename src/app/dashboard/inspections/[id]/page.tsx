@@ -1,6 +1,7 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
@@ -69,22 +70,7 @@ export default function InspectionDetailPage() {
   );
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadInspection();
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSelectedImage(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  const loadInspection = async () => {
+  const loadInspection = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -126,8 +112,9 @@ export default function InspectionDetailPage() {
 
       if (mediaError) throw mediaError;
 
+      const mediaRows = (mediaData ?? []) as Media[];
       const mediaWithUrls = await Promise.all(
-        (mediaData || []).map(async (m: any) => {
+        mediaRows.map(async (m) => {
           if (!m.file_path) {
             return {
               ...m,
@@ -160,7 +147,22 @@ export default function InspectionDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [inspectionId]);
+
+  useEffect(() => {
+    loadInspection();
+  }, [loadInspection]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedImage(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const formatDate = (value?: string | null) => {
     if (!value) return "-";

@@ -1,7 +1,6 @@
 'use client'
 
 import {
-  ODOMETER_MAX_KM,
   formatOdometerKmPtBr,
   parseOdometerKmInput,
 } from '@/app/lib/odometerKm'
@@ -37,8 +36,6 @@ export default function OdometerStep({ value, onChange }: Props) {
         value={formatOdometerKmPtBr(value)}
         onChange={(e) => onChange(parseOdometerKmInput(e.target.value))}
         maxLength={11}
-        aria-valuemin={1}
-        aria-valuemax={ODOMETER_MAX_KM}
         className="w-full rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 outline-none ring-emerald-600 focus:ring-2"
       />
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { ClipboardCheck, LogOut, PlusCircle, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -15,34 +15,35 @@ type MoviCarUser = {
 
 export default function DriverPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<MoviCarUser | null>(null);
 
-  useEffect(() => {
+  const authData = useMemo(() => {
+    if (typeof window === "undefined") {
+      return { token: null as string | null, user: null as MoviCarUser | null, role: "" };
+    }
+
     try {
       const token = localStorage.getItem("movicar_token");
       const userData = localStorage.getItem("movicar_user");
+      const parsedUser: MoviCarUser | null = userData ? JSON.parse(userData) : null;
+      const role = String(parsedUser?.role ?? parsedUser?.profile ?? "").toLowerCase();
 
-      if (!token || !userData) {
-        router.replace("/login");
-        return;
-      }
-
-      const parsedUser: MoviCarUser = JSON.parse(userData);
-      const role = String(parsedUser.role ?? parsedUser.profile ?? "").toLowerCase();
-
-      if (role && role !== "motorista") {
-        router.replace("/dashboard");
-        return;
-      }
-
-      setUser(parsedUser);
-      setLoading(false);
+      return { token, user: parsedUser, role };
     } catch (error) {
       console.error("Erro ao carregar usuário:", error);
-      router.replace("/login");
+      return { token: null as string | null, user: null as MoviCarUser | null, role: "" };
     }
-  }, [router]);
+  }, []);
+
+  useEffect(() => {
+    if (!authData.token || !authData.user) {
+      router.replace("/login");
+      return;
+    }
+
+    if (authData.role && authData.role !== "motorista") {
+      router.replace("/dashboard");
+    }
+  }, [authData, router]);
 
   const handleNewInspection = () => {
     router.push("/inspection/new");
@@ -54,9 +55,9 @@ export default function DriverPage() {
     router.replace("/login");
   };
 
-  const userName = user?.name || user?.nome || "Motorista";
+  const userName = authData.user?.name || authData.user?.nome || "Motorista";
 
-  if (loading) {
+  if (!authData.token || !authData.user) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
         <p className="text-slate-700 text-lg">Carregando...</p>
