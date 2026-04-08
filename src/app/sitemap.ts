@@ -20,9 +20,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.8,
     },
+    {
+      url: "https://www.movicarweb.com.br/vistoria-veicular-locacao",
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
   ];
-  {
-    url: "https://www.movicarweb.com.br/vistoria-veicular-locacao",
-    lastModified: new Date(),
-  },
 }
