@@ -57,6 +57,21 @@ type Media = {
   signed_url?: string | null;
 };
 
+function getInspectionStatusLabel(status?: string | null) {
+  switch (String(status ?? "").toLowerCase()) {
+    case "completed":
+      return "Concluída";
+    case "in_progress":
+      return "Em andamento";
+    case "pending":
+      return "Pendente";
+    case "cancelled":
+      return "Cancelada";
+    default:
+      return status || "-";
+  }
+}
+
 export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -233,7 +248,11 @@ export default function InspectionDetailPage() {
 
             <div>
               <p className="text-slate-500">Motorista</p>
-              <p>{inspection.driver_name || "-"}</p>
+              <p>
+                {inspection.driver_name
+                  ? inspection.driver_name.split(" ")[0]
+                  : "-"}
+              </p>
             </div>
 
             <div>
@@ -243,7 +262,9 @@ export default function InspectionDetailPage() {
 
             <div>
               <p className="text-slate-500">Status</p>
-              <p className="font-semibold text-green-600">{inspection.status}</p>
+              <p className="font-semibold text-green-600">
+                {getInspectionStatusLabel(inspection.status)}
+              </p>
             </div>
 
             <div>

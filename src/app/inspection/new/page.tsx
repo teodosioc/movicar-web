@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/app/lib/supabaseClient'
+import { resolveMoviCarUserFromAuth, signOutMoviCar } from '@/app/lib/movicarAuth'
 import InspectionStep from '@/app/components/InspectionStep'
 import OdometerStep from '@/app/components/OdometerStep'
 import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
@@ -134,10 +135,18 @@ export default function NewInspectionPage() {
     try {
       setLoading(true)
 
-      const loggedUser = getLoggedUser()
+      const resolved = await resolveMoviCarUserFromAuth()
+      if (!resolved?.id) {
+        router.replace('/login')
+        return
+      }
 
-      if (!loggedUser?.id) {
-        throw new Error('Usuário não encontrado')
+      const loggedUser: MoviCarUser = {
+        id: resolved.id,
+        name: resolved.name,
+        email: resolved.email,
+        role: resolved.role,
+        active: resolved.active,
       }
 
       const itemsPromise = supabase
@@ -177,7 +186,7 @@ export default function NewInspectionPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router])
 
   const createSession = useCallback(async (vehicleId: string) => {
     try {
@@ -409,12 +418,11 @@ export default function NewInspectionPage() {
 
           <button
             onClick={() => {
-              localStorage.removeItem('movicar_token')
-              localStorage.removeItem('movicar_user_email')
-              localStorage.removeItem('movicar_user')
-              document.cookie = 'movicar_token=; path=/; max-age=0; samesite=lax'
-              router.push('/login')
-              router.refresh()
+              void signOutMoviCar().then(() => {
+                document.cookie = 'movicar_token=; path=/; max-age=0; samesite=lax'
+                router.push('/login')
+                router.refresh()
+              })
             }}
             className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
           >

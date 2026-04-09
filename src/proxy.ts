@@ -6,7 +6,7 @@ const APP_ENTRY_HOST = (
   process.env.APP_ENTRY_HOST ?? "app.movicarweb.com.br"
 ).toLowerCase();
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0]?.toLowerCase();
   if (host === APP_ENTRY_HOST && request.nextUrl.pathname === "/") {
     return NextResponse.redirect(new URL("/login", request.url));

@@ -14,6 +14,10 @@ import {
   UserCircle2,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabaseClient";
+import {
+  resolveMoviCarUserFromAuth,
+  signOutMoviCar,
+} from "@/app/lib/movicarAuth";
 import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
 
 type MoviCarUser = {
@@ -90,15 +94,15 @@ function formatFrequency(
 ) {
   switch (frequency) {
     case "daily":
-      return "Diária";
+      return 'Diária';
     case "weekly":
-      return "Semanal";
+      return 'Semanal';
     case "biweekly":
-      return "Quinzenal";
+      return 'Quinzenal';
     case "monthly":
-      return "Mensal";
+      return 'Mensal';
     default:
-      return "Não definida";
+      return 'Não definida';
   }
 }
 
@@ -198,15 +202,12 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const token = localStorage.getItem("movicar_token");
-        const userData = localStorage.getItem("movicar_user");
-
-        if (!token || !userData) {
+        const parsedUser = await resolveMoviCarUserFromAuth();
+        if (!parsedUser) {
           router.replace("/login");
           return;
         }
 
-        const parsedUser: MoviCarUser = JSON.parse(userData);
         const role = String(parsedUser.role ?? "").toLowerCase();
 
         if (role === "motorista") {
@@ -215,8 +216,7 @@ export default function DashboardPage() {
         }
 
         if (!parsedUser.active) {
-          localStorage.removeItem("movicar_token");
-          localStorage.removeItem("movicar_user");
+          await signOutMoviCar();
           router.replace("/login");
           return;
         }
@@ -300,8 +300,7 @@ export default function DashboardPage() {
         setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
-        localStorage.removeItem("movicar_token");
-        localStorage.removeItem("movicar_user");
+        await signOutMoviCar();
         router.replace("/login");
       } finally {
         setLoading(false);
@@ -311,9 +310,8 @@ export default function DashboardPage() {
     loadDashboard();
   }, [router]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("movicar_token");
-    localStorage.removeItem("movicar_user");
+  const handleLogout = async () => {
+    await signOutMoviCar();
     router.replace("/login");
   };
 
@@ -419,7 +417,7 @@ export default function DashboardPage() {
               </button>
 
               <button
-                onClick={handleLogout}
+                onClick={() => void handleLogout()}
                 className="flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 <LogOut size={18} />
@@ -505,156 +503,158 @@ export default function DashboardPage() {
             <div className="mt-5 rounded-3xl border border-slate-200">
               <div className="overflow-x-auto">
                 <div className="min-w-0 md:min-w-[56rem]">
-              <div className="hidden grid-cols-9 gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-                <div>Placa</div>
-                <div>Veículo</div>
-                <div>Motorista</div>
-                <div>Data</div>
-                <div>KM</div>
-                <div>KM período</div>
-                <div>Status</div>
-                <div>Local</div>
-                <div>Ações</div>
-              </div>
+                  <div className="hidden grid-cols-9 gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+                    <div>Placa</div>
+                    <div>Veículo</div>
+                    <div>Motorista</div>
+                    <div>Data</div>
+                    <div>KM</div>
+                    <div>KM período</div>
+                    <div>Status</div>
+                    <div>Local</div>
+                    <div>Ações</div>
+                  </div>
 
-              {inspections.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-slate-500">
-                  Nenhuma vistoria encontrada.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-200 bg-white">
-                  {inspections.map((inspection) => {
-                    const statusBadge = getInspectionStatusBadge(
-                      inspection.status
-                    );
-                    const relatedVehicle = getInspectionVehicle(
-                      inspection.vehicles
-                    );
-                    const plate = relatedVehicle?.plate || "-";
-                    const vehicleName = [
-                      relatedVehicle?.brand,
-                      relatedVehicle?.model,
-                    ]
-                      .filter(Boolean)
-                      .join(" ");
+                  {inspections.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-slate-500">
+                      Nenhuma vistoria encontrada.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200 bg-white">
+                      {inspections.map((inspection) => {
+                        const statusBadge = getInspectionStatusBadge(
+                          inspection.status
+                        );
+                        const relatedVehicle = getInspectionVehicle(
+                          inspection.vehicles
+                        );
+                        const plate = relatedVehicle?.plate || "-";
+                        const vehicleName = [
+                          relatedVehicle?.brand,
+                          relatedVehicle?.model,
+                        ]
+                          .filter(Boolean)
+                          .join(" ");
 
-                    return (
-                      <div
-                        key={inspection.id}
-                        className="grid grid-cols-1 gap-3 px-4 py-3 odd:bg-white even:bg-slate-50/70 md:grid-cols-9 md:items-center md:gap-3 md:py-3.5"
-                      >
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Placa
-                          </p>
-                          <p className="font-semibold text-slate-900">{plate}</p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Veículo
-                          </p>
-                          <p className="text-sm text-slate-700">
-                            {vehicleName || relatedVehicle?.model || "-"}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Motorista
-                          </p>
-                          <p className="text-sm text-slate-700">
-                            {inspection.driver_name || "-"}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Data
-                          </p>
-                          <p className="text-sm text-slate-700">
-                            {formatDateTime(
-                              inspection.finished_at || inspection.created_at
-                            )}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            KM
-                          </p>
-                          <p className="text-sm text-slate-700">
-                            {inspection.odometer != null
-                              ? inspection.odometer.toLocaleString("pt-BR")
-                              : "-"}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            KM período
-                          </p>
-                          <p className="text-sm text-slate-700">
-                            {kmTraveledByInspectionId[inspection.id] != null
-                              ? kmTraveledByInspectionId[
-                                  inspection.id
-                                ]!.toLocaleString("pt-BR")
-                              : "-"}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Status
-                          </p>
-                          <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBadge.tone}`}
+                        return (
+                          <div
+                            key={inspection.id}
+                            className="grid grid-cols-1 gap-3 px-4 py-3 odd:bg-white even:bg-slate-50/70 md:grid-cols-9 md:items-center md:gap-3 md:py-3.5"
                           >
-                            {statusBadge.label}
-                          </span>
-                        </div>
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Placa
+                              </p>
+                              <p className="font-semibold text-slate-900">{plate}</p>
+                            </div>
 
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Local
-                          </p>
-                          {inspection.latitude != null &&
-                          inspection.longitude != null ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenMaps(
-                                  inspection.latitude,
-                                  inspection.longitude
-                                )
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50"
-                            >
-                              <MapPin size={14} />
-                              Mapa
-                            </button>
-                          ) : (
-                            <p className="text-sm text-slate-500">-</p>
-                          )}
-                        </div>
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Veículo
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {vehicleName || relatedVehicle?.model || "-"}
+                              </p>
+                            </div>
 
-                        <div>
-                          <p className="text-xs text-slate-500 md:hidden">
-                            Ações
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => handleViewDetails(inspection.id)}
-                            className="inline-flex rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/90"
-                          >
-                            Detalhes
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Motorista
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {inspection.driver_name
+                                  ? inspection.driver_name.split(" ")[0]
+                                  : "-"}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Data
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {formatDateTime(
+                                  inspection.finished_at || inspection.created_at
+                                )}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                KM
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {inspection.odometer != null
+                                  ? inspection.odometer.toLocaleString("pt-BR")
+                                  : "-"}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                KM período
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {kmTraveledByInspectionId[inspection.id] != null
+                                  ? kmTraveledByInspectionId[
+                                      inspection.id
+                                    ]!.toLocaleString("pt-BR")
+                                  : "-"}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Status
+                              </p>
+                              <span
+                                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBadge.tone}`}
+                              >
+                                {statusBadge.label}
+                              </span>
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Local
+                              </p>
+                              {inspection.latitude != null &&
+                              inspection.longitude != null ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenMaps(
+                                      inspection.latitude,
+                                      inspection.longitude
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50"
+                                >
+                                  <MapPin size={14} />
+                                  Mapa
+                                </button>
+                              ) : (
+                                <p className="text-sm text-slate-500">-</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Ações
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleViewDetails(inspection.id)}
+                                className="inline-flex rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/90"
+                              >
+                                Detalhes
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
