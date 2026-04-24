@@ -1,6 +1,6 @@
 -- Mantém vehicles.last_inspection_at e next_inspection_due alinhados com
 -- a última vistoria concluída em inspections (fonte de verdade no banco).
--- Regra de próxima data espelha o app: daily +1d, weekly +7d, biweekly +15d, monthly +1 mês.
+-- Regra de próxima data espelha o app: daily +1d, weekly +7d, biweekly +15d, monthly +1 mês.-- Regra de próxima data: daily +1d, weekly próxima quarta-feira, biweekly +15d, monthly +1 mês.
 -- O trigger roda com SECURITY DEFINER para não depender de RLS em vehicles na sessão do cliente.
 
 CREATE OR REPLACE FUNCTION public.movicar_next_inspection_due(
@@ -13,7 +13,17 @@ AS $$
   SELECT CASE
     WHEN p_base IS NULL OR p_frequency IS NULL THEN NULL
     WHEN p_frequency = 'daily' THEN p_base + interval '1 day'
-    WHEN p_frequency = 'weekly' THEN p_base + interval '7 days'
+    WHEN p_frequency = 'weekly' THEN
+(
+  (p_base AT TIME ZONE 'America/Sao_Paulo')
+  + make_interval(
+      days => CASE
+        WHEN ((3 - EXTRACT(DOW FROM (p_base AT TIME ZONE 'America/Sao_Paulo'))::int + 7) % 7) = 0
+          THEN 7
+        ELSE ((3 - EXTRACT(DOW FROM (p_base AT TIME ZONE 'America/Sao_Paulo'))::int + 7) % 7)
+      END
+    )
+) AT TIME ZONE 'America/Sao_Paulo'
     WHEN p_frequency = 'biweekly' THEN p_base + interval '15 days'
     WHEN p_frequency = 'monthly' THEN p_base + interval '1 month'
     ELSE NULL
