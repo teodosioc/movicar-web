@@ -34,6 +34,10 @@ export default function DriverPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    router.prefetch("/inspection/new");
+  }, [router]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const resolved = await resolveMoviCarUserFromAuth();

@@ -246,7 +246,7 @@ export default function CameraCapture({ type, onCapture }: Props) {
   }, [clearAutoStopTimeout])
 
   useEffect(() => {
-    startCamera()
+    void startCamera()
 
     return () => {
       clearAutoStopTimeout()

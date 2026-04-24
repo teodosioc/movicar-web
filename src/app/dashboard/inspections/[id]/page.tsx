@@ -55,6 +55,8 @@ type Media = {
   media_type: "photo" | "video";
   item_id: string;
   signed_url?: string | null;
+  order_index: number | null;
+  item_name: string | null;
 };
 
 function getInspectionStatusLabel(status?: string | null) {
@@ -72,6 +74,23 @@ function getInspectionStatusLabel(status?: string | null) {
   }
 }
 
+function getMediaOrderIndex(media: Media) {
+  return media.order_index ?? Number.MAX_SAFE_INTEGER;
+}
+
+function logLoadInspectionError(err: unknown) {
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const code = o.code;
+    const message = o.message;
+    const details = o.details;
+    const hint = o.hint;
+    console.error("[loadInspection]", { code, message, details, hint, err });
+    return;
+  }
+  console.error("[loadInspection]", err);
+}
+
 export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -86,6 +105,14 @@ export default function InspectionDetailPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const loadInspection = useCallback(async () => {
+    if (!inspectionId) {
+      setInspection(null);
+      setMedia([]);
+      setKmTraveledInPeriod(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -122,12 +149,56 @@ export default function InspectionDetailPage() {
 
       const { data: mediaData, error: mediaError } = await supabase
         .from("inspection_media")
-        .select("*")
+        .select("id, file_path, media_type, item_id")
         .eq("inspection_id", inspectionId);
 
       if (mediaError) throw mediaError;
 
-      const mediaRows = (mediaData ?? []) as Media[];
+      const rawMedia = (mediaData ?? []) as Omit<
+        Media,
+        "signed_url" | "order_index" | "item_name"
+      >[];
+
+      const itemIds = [
+        ...new Set(
+          rawMedia.map((m) => m.item_id).filter((id): id is string => Boolean(id))
+        ),
+      ];
+
+      const itemMetaById = new Map<
+        string,
+        { order_index: number | null; name: string | null }
+      >();
+
+      if (itemIds.length > 0) {
+        const { data: itemsRows, error: itemsError } = await supabase
+          .from("inspection_items")
+          .select("id, order_index, name")
+          .in("id", itemIds);
+
+        if (itemsError) throw itemsError;
+
+        for (const row of itemsRows ?? []) {
+          const id = row.id as string;
+          itemMetaById.set(id, {
+            order_index:
+              typeof row.order_index === "number" ? row.order_index : null,
+            name: (row.name as string | null) ?? null,
+          });
+        }
+      }
+
+      const mediaRows: Media[] = rawMedia.map((m) => {
+        const meta = itemMetaById.get(m.item_id);
+        return {
+          ...m,
+          order_index: meta?.order_index ?? null,
+          item_name: meta?.name ?? null,
+        };
+      });
+
+      mediaRows.sort((a, b) => getMediaOrderIndex(a) - getMediaOrderIndex(b));
+
       const mediaWithUrls = await Promise.all(
         mediaRows.map(async (m) => {
           if (!m.file_path) {
@@ -156,7 +227,7 @@ export default function InspectionDetailPage() {
       setKmTraveledInPeriod(kmPeriod);
       setMedia(mediaWithUrls);
     } catch (err) {
-      console.error(err);
+      logLoadInspectionError(err);
       setKmTraveledInPeriod(null);
       alert("Erro ao carregar vistoria");
     } finally {
@@ -165,7 +236,7 @@ export default function InspectionDetailPage() {
   }, [inspectionId]);
 
   useEffect(() => {
-    loadInspection();
+    void loadInspection();
   }, [loadInspection]);
 
   useEffect(() => {

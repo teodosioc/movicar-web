@@ -1,9 +1,13 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
 import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
+import {
+  invalidateInspectionStepMediaPreview,
+  loadInspectionStepMediaPreview,
+} from '@/app/lib/inspectionStepMediaPreview'
 import CameraCapture from './CameraCapture'
 
 type Props = {
@@ -13,6 +17,7 @@ type Props = {
     type: 'photo' | 'video'
     name: string
     required: boolean
+    order_index: number
   }
   onCompleted?: (completed: boolean) => void
 }
@@ -28,6 +33,8 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
   const [loading, setLoading] = useState(true)
   const [captureStarted, setCaptureStarted] = useState(false)
   const [previewError, setPreviewError] = useState(false)
+  const onCompletedRef = useRef(onCompleted)
+  onCompletedRef.current = onCompleted
 
   useEffect(() => {
     let isMounted = true
@@ -35,56 +42,39 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
     async function fetchMedia() {
       setLoading(true)
 
-      const { data, error } = await supabase
-        .from('inspection_media')
-        .select('id, file_path, file_url')
-        .eq('session_id', sessionId)
-        .eq('item_id', item.id)
-        .maybeSingle()
+      const { signedUrl, error } = await loadInspectionStepMediaPreview(
+        sessionId,
+        item.id
+      )
 
       if (!isMounted) return
 
-      if (error) {
-        console.error('Erro ao buscar mídia:', error)
+      if (error === 'db') {
         setMediaUrl(null)
         setPreviewError(false)
-        onCompleted?.(false)
+        onCompletedRef.current?.(false)
         setLoading(false)
         return
       }
 
-      const storedPath = data?.file_path || data?.file_url
-
-      if (storedPath) {
-        const { data: signedData, error: signedError } = await supabase.storage
-          .from('inspections')
-          .createSignedUrl(storedPath, 60 * 60)
-
-        if (!isMounted) return
-
-        if (signedError) {
-          console.error('Erro ao gerar signed URL no fetch:', signedError)
-          setMediaUrl(null)
-          onCompleted?.(false)
-        } else {
-          setMediaUrl(signedData.signedUrl)
-          onCompleted?.(true)
-        }
+      if (signedUrl) {
+        setMediaUrl(signedUrl)
+        onCompletedRef.current?.(true)
       } else {
         setMediaUrl(null)
-        onCompleted?.(false)
+        onCompletedRef.current?.(false)
       }
 
       setPreviewError(false)
       setLoading(false)
     }
 
-    fetchMedia()
+    void fetchMedia()
 
     return () => {
       isMounted = false
     }
-  }, [sessionId, item.id, onCompleted])
+  }, [sessionId, item.id])
 
   const exampleImage = useMemo(() => {
     const normalizedName = item.name.toLowerCase()
@@ -178,7 +168,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
       onCompleted?.(false)
 
       const extension = item.type === 'photo' ? 'jpg' : 'webm'
-      const filePath = `${sessionId}/${item.id}/${Date.now()}.${extension}`
+      const filePath = `${sessionId}/${String(item.order_index).padStart(2, '0')}_${item.id}.${extension}`
       const nowIso = new Date().toISOString()
       const mediaType = item.type === 'photo' ? 'photo' : 'video'
       const deviceModel =
@@ -249,6 +239,8 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
         }
       }
 
+      invalidateInspectionStepMediaPreview(sessionId, item.id)
+
       const preview = URL.createObjectURL(file)
       setMediaUrl(preview)
       setCaptureStarted(false)
@@ -266,6 +258,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
   }
 
   const handleReset = () => {
+    invalidateInspectionStepMediaPreview(sessionId, item.id)
     setMediaUrl(null)
     setCaptureStarted(false)
     setPreviewError(false)
@@ -359,7 +352,9 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
             onClick={() => setCaptureStarted(false)}
             className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700"
           >
-            Voltar ao exemplo
+            {item.type === 'video'
+              ? 'Sair do modo gravação'
+              : 'Sair da câmera'}
           </button>
         </div>
       )}

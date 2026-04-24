@@ -6,20 +6,16 @@ import { supabase } from '@/app/lib/supabaseClient'
 import { resolveMoviCarUserFromAuth, signOutMoviCar } from '@/app/lib/movicarAuth'
 import InspectionStep from '@/app/components/InspectionStep'
 import OdometerStep from '@/app/components/OdometerStep'
-import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
 import { isValidOdometerKm } from '@/app/lib/odometerKm'
+import {
+  buildWizardSteps,
+  computeResumeWizardIndex,
+  type InspectionWizardItem,
+} from '@/app/lib/inspectionWizard'
+import { loadInspectionStepMediaPreview } from '@/app/lib/inspectionStepMediaPreview'
+import { ensureOpenInspectionSession } from '@/app/lib/services/inspectionSessions'
 
-type InspectionItem = {
-  id: string
-  name: string
-  type: 'photo' | 'video'
-  required: boolean
-  order_index: number
-}
-
-type WizardStep =
-  | { kind: 'media'; item: InspectionItem }
-  | { kind: 'odometer' }
+type InspectionItem = InspectionWizardItem
 
 type Vehicle = {
   id: string
@@ -100,37 +96,6 @@ export default function NewInspectionPage() {
     })
   }
 
-  const calculateNextInspectionDue = (
-    baseDateIso: string,
-    frequency?: 'daily' | 'weekly' | 'biweekly' | 'monthly' | null
-  ) => {
-    if (!frequency) return null
-
-    const baseDate = new Date(baseDateIso)
-    if (Number.isNaN(baseDate.getTime())) return null
-
-    const nextDate = new Date(baseDate)
-
-    switch (frequency) {
-      case 'daily':
-        nextDate.setDate(nextDate.getDate() + 1)
-        break
-      case 'weekly':
-        nextDate.setDate(nextDate.getDate() + 7)
-        break
-      case 'biweekly':
-        nextDate.setDate(nextDate.getDate() + 15)
-        break
-      case 'monthly':
-        nextDate.setMonth(nextDate.getMonth() + 1)
-        break
-      default:
-        return null
-    }
-
-    return nextDate.toISOString()
-  }
-
   const loadInitialData = useCallback(async () => {
     try {
       setLoading(true)
@@ -188,38 +153,60 @@ export default function NewInspectionPage() {
     }
   }, [router])
 
-  const createSession = useCallback(async (vehicleId: string) => {
-    try {
-      setCreatingSession(true)
+  const getOrCreateSession = useCallback(
+    async (vehicleId: string, orderedItems: InspectionItem[]) => {
+      try {
+        setCreatingSession(true)
 
-      const loggedUser = getLoggedUser()
-      const geoData = await getGeoData()
-
-      const { data, error } = await supabase
-        .from('inspection_sessions')
-        .insert([
-          {
-            vehicle_id: vehicleId,
-            driver_id: loggedUser?.id ?? null,
-            status: 'in_progress',
-            started_at: new Date().toISOString(),
-            latitude: geoData.latitude,
-            longitude: geoData.longitude,
-          },
+        const [loggedUser, geoData] = await Promise.all([
+          resolveMoviCarUserFromAuth(),
+          getGeoData(),
         ])
-        .select()
-        .single()
 
-      if (error) throw error
+        const userId = loggedUser?.id ?? null
 
-      setSessionId(data.id)
-    } catch (error) {
-      console.error(error)
-      alert('Erro ao criar sessão.')
-    } finally {
-      setCreatingSession(false)
-    }
-  }, [])
+        if (!userId) {
+          throw new Error('Usuário não identificado para iniciar a sessão.')
+        }
+
+        const session = await ensureOpenInspectionSession({
+          vehicleId,
+          driverId: userId,
+          latitude: geoData.latitude,
+          longitude: geoData.longitude,
+        })
+
+        const { data: mediaRows, error: mediaError } = await supabase
+          .from('inspection_media')
+          .select('item_id')
+          .eq('session_id', session.id)
+
+        if (mediaError) throw mediaError
+
+        const itemIdsWithMedia = new Set(
+          (mediaRows ?? [])
+            .map((row) => row.item_id as string | null | undefined)
+            .filter((id): id is string => Boolean(id))
+        )
+
+        const steps = buildWizardSteps(orderedItems)
+        const resumeIndex = computeResumeWizardIndex(
+          steps,
+          itemIdsWithMedia,
+          orderedItems
+        )
+
+        setSessionId(session.id)
+        setCurrentIndex(resumeIndex)
+      } catch (error) {
+        console.error(error)
+        alert('Erro ao iniciar vistoria.')
+      } finally {
+        setCreatingSession(false)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
     loadInitialData()
@@ -234,25 +221,26 @@ export default function NewInspectionPage() {
       return
     }
 
+    if (!items.length) return
+
     if (sessionId || creatingSession) return
 
-    createSession(selectedVehicle)
-  }, [selectedVehicle, sessionId, creatingSession, createSession])
+    void getOrCreateSession(selectedVehicle, items)
+  }, [selectedVehicle, items, sessionId, creatingSession, getOrCreateSession])
+
+  const handleVehicleChange = (vehicleId: string) => {
+    setSelectedVehicle(vehicleId)
+    setSessionId(null)
+    setCurrentIndex(0)
+    setStepCompleted(false)
+    setOdometerKm('')
+  }
 
   const handleStepCompleted = useCallback((completed: boolean) => {
     setStepCompleted(completed)
   }, [])
 
-  const wizardSteps = useMemo((): WizardStep[] => {
-    const out: WizardStep[] = []
-    for (const item of items) {
-      out.push({ kind: 'media', item })
-      if (isOdometerPhotoItem(item)) {
-        out.push({ kind: 'odometer' })
-      }
-    }
-    return out
-  }, [items])
+  const wizardSteps = useMemo(() => buildWizardSteps(items), [items])
 
   const currentWizardStep = wizardSteps[currentIndex]
 
@@ -260,6 +248,20 @@ export default function NewInspectionPage() {
     if (!currentWizardStep || currentWizardStep.kind !== 'odometer') return
     setStepCompleted(isValidOdometerKm(odometerKm))
   }, [currentIndex, currentWizardStep, odometerKm])
+
+  useEffect(() => {
+    if (!sessionId || creatingSession || !wizardSteps.length) return
+
+    const nextIndex = currentIndex + 1
+    if (nextIndex >= wizardSteps.length) return
+
+    const step = wizardSteps[nextIndex]
+    if (step.kind !== 'media') return
+
+    void loadInspectionStepMediaPreview(sessionId, step.item.id).catch(() => {
+      /* prefetch best-effort */
+    })
+  }, [sessionId, currentIndex, wizardSteps, creatingSession])
 
   const handleNext = () => {
     if (!stepCompleted) {
@@ -360,26 +362,9 @@ export default function NewInspectionPage() {
         throw mediaUpdateError
       }
 
-      const selectedVehicleData =
-        vehicles.find((vehicle) => vehicle.id === selectedVehicle) ?? null
-
-      const nextInspectionDue = calculateNextInspectionDue(
-        finishedAt,
-        selectedVehicleData?.inspection_frequency ?? null
-      )
-
-      const { error: vehicleUpdateError } = await supabase
-        .from('vehicles')
-        .update({
-          last_inspection_at: finishedAt,
-          next_inspection_due: nextInspectionDue,
-        })
-        .eq('id', selectedVehicle)
-
-      if (vehicleUpdateError) {
-        throw vehicleUpdateError
-      }
-
+      setSelectedVehicle('')
+      setSessionId(null)
+      setOdometerKm('')
       alert('Vistoria finalizada com sucesso!')
       router.push('/dashboard')
     } catch (error) {
@@ -433,7 +418,7 @@ export default function NewInspectionPage() {
         <div className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-200 sm:p-5">
           <select
             value={selectedVehicle}
-            onChange={(e) => setSelectedVehicle(e.target.value)}
+            onChange={(e) => handleVehicleChange(e.target.value)}
             className="mb-4 w-full rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 outline-none"
           >
             <option value="">Selecione veículo</option>
@@ -473,7 +458,7 @@ export default function NewInspectionPage() {
                   <p className="text-sm text-slate-600">Preparando vistoria...</p>
                 ) : currentWizardStep?.kind === 'media' ? (
                   <InspectionStep
-                    key={currentWizardStep.item.id}
+                    key={`${sessionId}-${currentWizardStep.item.id}`}
                     sessionId={sessionId}
                     item={currentWizardStep.item}
                     onCompleted={handleStepCompleted}
@@ -489,7 +474,7 @@ export default function NewInspectionPage() {
                   disabled={currentIndex === 0 || finishing}
                   className="flex-1 rounded-2xl bg-slate-300 py-2 font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Voltar
+                  Etapa anterior
                 </button>
 
                 {isLast ? (

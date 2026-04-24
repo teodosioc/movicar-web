@@ -1,0 +1,6 @@
+-- O app passa a gravar inspection_sessions.status = 'abandoned' ao encerrar sessões antigas.
+-- Se a coluna for ENUM, inclua o valor 'abandoned' antes de usar em produção, por exemplo:
+--
+--   ALTER TYPE nome_do_enum ADD VALUE IF NOT EXISTS 'abandoned';
+--
+-- Se for TEXT ou VARCHAR sem CHECK restritivo, nenhuma migração é necessária.

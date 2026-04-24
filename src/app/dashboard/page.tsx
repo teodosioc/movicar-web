@@ -191,6 +191,10 @@ function getInspectionVehicle(
 export default function DashboardPage() {
   const router = useRouter();
 
+  useEffect(() => {
+    router.prefetch("/inspection/new");
+  }, [router]);
+
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MoviCarUser | null>(null);
   const [inspections, setInspections] = useState<InspectionRow[]>([]);
