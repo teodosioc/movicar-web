@@ -351,6 +351,23 @@ export default function NewInspectionPage() {
 
       const inspectionId = inspectionData.id
 
+      try {
+        await fetch('/api/notifications/inspection-completed', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            inspectionId,
+          }),
+        })
+      } catch (notificationError) {
+        console.error(
+          'Erro ao enviar notificação de vistoria:',
+          notificationError
+        )
+      }
+
       const { error: mediaUpdateError } = await supabase
         .from('inspection_media')
         .update({
