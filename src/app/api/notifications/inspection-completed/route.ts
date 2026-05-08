@@ -68,11 +68,18 @@ export async function POST(req: Request) {
     }
 
     // Cria notificações
+    const vehicle = Array.isArray(inspection.vehicle)
+      ? inspection.vehicle[0]
+      : inspection.vehicle;
+
+    const plate = vehicle?.plate ?? "placa não identificada";
+    const driverName = inspection.driver_name ?? "Motorista";
+
     const notifications = admins.map((admin) => ({
       user_id: admin.id,
       type: "inspection_completed",
       title: "Nova vistoria realizada",
-      message: `O motorista ${inspection.driver_name} concluiu a vistoria do veículo ${inspection.vehicle?.plate}.`,
+      message: `O motorista ${driverName} concluiu a vistoria do veículo ${plate}.`,
       link: `/dashboard/inspections/${inspection.id}`,
     }));
 
