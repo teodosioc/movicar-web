@@ -12,6 +12,7 @@ type OpenSessionRow = {
   id: string
   started_at: string | null
   status: string | null
+  odometer: number | null
 }
 
 async function fetchLatestOpenSession(
@@ -20,7 +21,7 @@ async function fetchLatestOpenSession(
 ): Promise<{ data: OpenSessionRow[] | null; error: Error | null }> {
   const { data, error } = await supabase
     .from('inspection_sessions')
-    .select('id, started_at, status')
+    .select('id, started_at, status, odometer')
     .eq('vehicle_id', vehicleId)
     .eq('driver_id', driverId)
     .is('finished_at', null)
@@ -68,6 +69,21 @@ async function insertNewSession(params: EnsureOpenSessionParams) {
     .single()
 }
 
+export async function persistSessionOdometer(
+  sessionId: string,
+  odometer: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('inspection_sessions')
+    .update({ odometer })
+    .eq('id', sessionId)
+
+  if (error) {
+    console.error('Erro ao salvar quilometragem na sessão:', error)
+    throw new Error(`Erro ao salvar quilometragem: ${error.message}`)
+  }
+}
+
 /**
  * Busca sessão aberta (finished_at nulo, não completed/cancelled) ou cria uma nova.
  * Sessão aberta com started_at fora do prazo configurável é marcada abandoned + finished_at e substituída por nova sessão.
@@ -75,7 +91,7 @@ async function insertNewSession(params: EnsureOpenSessionParams) {
  */
 export async function ensureOpenInspectionSession(
   params: EnsureOpenSessionParams
-): Promise<{ id: string }> {
+): Promise<{ id: string; odometer: number | null }> {
   const maxAttempts = 5
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -93,7 +109,7 @@ export async function ensureOpenInspectionSession(
 
     if (existing?.id) {
       if (!isOpenInspectionSessionStale(existing.started_at)) {
-        return { id: existing.id }
+        return { id: existing.id, odometer: existing.odometer ?? null }
       }
 
       await markSessionAbandoned(existing.id)
@@ -103,7 +119,7 @@ export async function ensureOpenInspectionSession(
     const { data, error } = await insertNewSession(params)
 
     if (!error && data?.id) {
-      return { id: data.id }
+      return { id: data.id, odometer: null }
     }
 
     if (error?.code === '23505') {

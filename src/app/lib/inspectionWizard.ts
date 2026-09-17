@@ -25,21 +25,14 @@ export function buildWizardSteps(items: InspectionWizardItem[]): WizardStep[] {
 
 /**
  * Primeira etapa pendente: mídia exige registro em inspection_media; etapa de
- * odômetro não é persistida — usa heurística (mídia de item com order maior)
- * para não voltar atrás quando já houve progresso linear.
+ * odômetro exige KM persistido na sessão (inspection_sessions.odometer).
  */
 export function computeResumeWizardIndex(
   wizardSteps: WizardStep[],
   itemIdsWithMedia: Set<string>,
-  orderedItems: InspectionWizardItem[]
+  hasPersistedOdometer: boolean
 ): number {
   if (wizardSteps.length === 0) return 0
-
-  const hasLaterMediaForItem = (afterItem: InspectionWizardItem) =>
-    orderedItems.some(
-      (it) =>
-        it.order_index > afterItem.order_index && itemIdsWithMedia.has(it.id)
-    )
 
   for (let i = 0; i < wizardSteps.length; i++) {
     const step = wizardSteps[i]
@@ -48,13 +41,7 @@ export function computeResumeWizardIndex(
       continue
     }
 
-    const prevMedia = [...wizardSteps.slice(0, i)]
-      .reverse()
-      .find((s): s is { kind: 'media'; item: InspectionWizardItem } => s.kind === 'media')
-
-    if (!prevMedia) return i
-
-    if (!hasLaterMediaForItem(prevMedia.item)) return i
+    if (!hasPersistedOdometer) return i
   }
 
   return wizardSteps.length - 1
