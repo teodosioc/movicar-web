@@ -13,7 +13,10 @@ import {
   type InspectionWizardItem,
 } from '@/app/lib/inspectionWizard'
 import { loadInspectionStepMediaPreview } from '@/app/lib/inspectionStepMediaPreview'
-import { ensureOpenInspectionSession } from '@/app/lib/services/inspectionSessions'
+import {
+  ensureOpenInspectionSession,
+  persistSessionOdometer,
+} from '@/app/lib/services/inspectionSessions'
 
 type InspectionItem = InspectionWizardItem
 
@@ -48,6 +51,7 @@ export default function NewInspectionPage() {
   const [stepCompleted, setStepCompleted] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [savingOdometer, setSavingOdometer] = useState(false)
   const [odometerKm, setOdometerKm] = useState('')
 
   useEffect(() => {
@@ -189,13 +193,19 @@ export default function NewInspectionPage() {
             .filter((id): id is string => Boolean(id))
         )
 
+        const persistedOdometer =
+          session.odometer != null && session.odometer > 0
+            ? String(session.odometer)
+            : ''
+
         const steps = buildWizardSteps(orderedItems)
         const resumeIndex = computeResumeWizardIndex(
           steps,
           itemIdsWithMedia,
-          orderedItems
+          isValidOdometerKm(persistedOdometer)
         )
 
+        setOdometerKm(persistedOdometer)
         setSessionId(session.id)
         setCurrentIndex(resumeIndex)
       } catch (error) {
@@ -263,7 +273,7 @@ export default function NewInspectionPage() {
     })
   }, [sessionId, currentIndex, wizardSteps, creatingSession])
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!stepCompleted) {
       if (currentWizardStep?.kind === 'odometer') {
         alert('Informe a quilometragem antes de continuar.')
@@ -271,6 +281,24 @@ export default function NewInspectionPage() {
         alert('Capture a mídia antes de continuar.')
       }
       return
+    }
+
+    if (currentWizardStep?.kind === 'odometer' && sessionId) {
+      if (!isValidOdometerKm(odometerKm)) {
+        alert('Informe a quilometragem antes de continuar.')
+        return
+      }
+
+      try {
+        setSavingOdometer(true)
+        await persistSessionOdometer(sessionId, Number.parseInt(odometerKm, 10))
+      } catch (error) {
+        console.error(error)
+        alert('Erro ao salvar quilometragem. Tente novamente.')
+        return
+      } finally {
+        setSavingOdometer(false)
+      }
     }
 
     setCurrentIndex((prev) => Math.min(prev + 1, wizardSteps.length - 1))
@@ -292,12 +320,23 @@ export default function NewInspectionPage() {
       return
     }
 
+    const odometerStepIndex = wizardSteps.findIndex((s) => s.kind === 'odometer')
+    if (odometerStepIndex >= 0 && !isValidOdometerKm(odometerKm)) {
+      alert('Informe a quilometragem antes de finalizar.')
+      setCurrentIndex(odometerStepIndex)
+      return
+    }
+
     try {
       setFinishing(true)
 
       const finishedAt = new Date().toISOString()
       const loggedUser = getLoggedUser()
       const fallbackGeo = await getGeoData()
+
+      const odometerValue = isValidOdometerKm(odometerKm)
+        ? Number.parseInt(odometerKm, 10)
+        : null
 
       const { error: sessionUpdateError } = await supabase
         .from('inspection_sessions')
@@ -306,6 +345,7 @@ export default function NewInspectionPage() {
           finished_at: finishedAt,
           latitude: fallbackGeo.latitude,
           longitude: fallbackGeo.longitude,
+          odometer: odometerValue,
         })
         .eq('id', sessionId)
 
@@ -322,10 +362,6 @@ export default function NewInspectionPage() {
       if (sessionFetchError) {
         throw sessionFetchError
       }
-
-      const odometerValue = isValidOdometerKm(odometerKm)
-        ? Number.parseInt(odometerKm, 10)
-        : null
 
       const { data: inspectionData, error: inspectionInsertError } = await supabase
         .from('inspections')
@@ -505,7 +541,7 @@ export default function NewInspectionPage() {
                 ) : (
                   <button
                     onClick={handleNext}
-                    disabled={!stepCompleted || finishing}
+                    disabled={!stepCompleted || finishing || savingOdometer}
                     className="flex-1 rounded-2xl bg-emerald-700 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Próximo
