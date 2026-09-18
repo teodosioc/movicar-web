@@ -1,9 +1,9 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/app/lib/supabaseClient'
-import { isOdometerPhotoItem } from '@/app/lib/isOdometerPhotoItem'
+import { getInspectionExampleImage } from '@/app/lib/inspectionExampleImage'
 import {
   invalidateInspectionStepMediaPreview,
   loadInspectionStepMediaPreview,
@@ -28,32 +28,35 @@ type GeoData = {
   accuracy: number | null
 }
 
+type MediaCheckState = 'checking' | 'done' | 'error'
+
 export default function InspectionStep({ sessionId, item, onCompleted }: Props) {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [mediaCheck, setMediaCheck] = useState<MediaCheckState>('checking')
   const [captureStarted, setCaptureStarted] = useState(false)
   const [previewError, setPreviewError] = useState(false)
   const onCompletedRef = useRef(onCompleted)
   onCompletedRef.current = onCompleted
 
-  useEffect(() => {
-    let isMounted = true
-
-    async function fetchMedia() {
-      setLoading(true)
+  // Verifica mídia já registrada em paralelo com a exibição da orientação.
+  // Erro de consulta bloqueia a captura (não é tratado como ausência de mídia).
+  const runMediaCheck = useCallback(
+    async (isCancelled?: () => boolean) => {
+      setMediaCheck('checking')
 
       const { signedUrl, error } = await loadInspectionStepMediaPreview(
         sessionId,
         item.id
       )
 
-      if (!isMounted) return
+      if (isCancelled?.()) return
 
       if (error === 'db') {
         setMediaUrl(null)
         setPreviewError(false)
         onCompletedRef.current?.(false)
-        setLoading(false)
+        setMediaCheck('error')
         return
       }
 
@@ -66,50 +69,20 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
       }
 
       setPreviewError(false)
-      setLoading(false)
-    }
+      setMediaCheck('done')
+    },
+    [sessionId, item.id]
+  )
 
-    void fetchMedia()
-
+  useEffect(() => {
+    let cancelled = false
+    void runMediaCheck(() => cancelled)
     return () => {
-      isMounted = false
+      cancelled = true
     }
-  }, [sessionId, item.id])
+  }, [runMediaCheck])
 
-  const exampleImage = useMemo(() => {
-    const normalizedName = item.name.toLowerCase()
-    const normalizedId = item.id.toLowerCase()
-
-    if (normalizedName.includes('frente') || normalizedId.includes('frente')) {
-      return '/examples/foto-frente.png'
-    }
-
-    if (normalizedName.includes('traseira') || normalizedId.includes('traseira')) {
-      return '/examples/foto-traseira.png'
-    }
-
-    if (
-      normalizedName.includes('lateral direita') ||
-      normalizedName.includes('direita') ||
-      normalizedId.includes('direita')
-    ) {
-      return '/examples/lateral-direita.png'
-    }
-
-    if (
-      normalizedName.includes('lateral esquerda') ||
-      normalizedName.includes('esquerda') ||
-      normalizedId.includes('esquerda')
-    ) {
-      return '/examples/lateral-esquerda.png'
-    }
-
-    if (isOdometerPhotoItem(item)) {
-      return '/examples/quilometragem-velocimetro.png'
-    }
-
-    return null
-  }, [item])
+  const exampleImage = useMemo(() => getInspectionExampleImage(item), [item])
 
   const getGeoData = async (): Promise<GeoData> => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -266,6 +239,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
   }
 
   if (loading) {
+    // Upload/processamento da captura em andamento.
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
 
@@ -323,6 +297,7 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
                 <img
                   src={exampleImage}
                   alt="Exemplo"
+                  fetchPriority="high"
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -333,12 +308,33 @@ export default function InspectionStep({ sessionId, item, onCompleted }: Props) 
             </div>
           )}
 
-          <button
-            onClick={() => setCaptureStarted(true)}
-            className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white"
-          >
-            {item.type === 'video' ? 'Gravar vídeo' : 'Tirar foto'}
-          </button>
+          {mediaCheck === 'error' ? (
+            <div className="space-y-3">
+              <p className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">
+                Não foi possível verificar se esta etapa já possui mídia
+                registrada. Verifique sua conexão e tente novamente.
+              </p>
+
+              <button
+                onClick={() => void runMediaCheck()}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base font-semibold text-slate-700"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCaptureStarted(true)}
+              disabled={mediaCheck === 'checking'}
+              className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {mediaCheck === 'checking'
+                ? 'Verificando etapa...'
+                : item.type === 'video'
+                  ? 'Gravar vídeo'
+                  : 'Tirar foto'}
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

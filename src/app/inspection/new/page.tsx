@@ -13,6 +13,7 @@ import {
   type InspectionWizardItem,
 } from '@/app/lib/inspectionWizard'
 import { loadInspectionStepMediaPreview } from '@/app/lib/inspectionStepMediaPreview'
+import { getInspectionExampleImage } from '@/app/lib/inspectionExampleImage'
 import {
   ensureOpenInspectionSession,
   persistSessionOdometer,
@@ -267,6 +268,16 @@ export default function NewInspectionPage() {
 
     const step = wizardSteps[nextIndex]
     if (step.kind !== 'media') return
+
+    // Pré-carrega só o exemplo da próxima etapa, em prioridade baixa (a imagem
+    // da etapa atual usa fetchPriority="high"). Mesma URL da exibição — o
+    // navegador reaproveita o cache e não baixa duas vezes.
+    const nextExample = getInspectionExampleImage(step.item)
+    if (nextExample && typeof window !== 'undefined') {
+      const img = new window.Image()
+      img.fetchPriority = 'low'
+      img.src = nextExample
+    }
 
     void loadInspectionStepMediaPreview(sessionId, step.item.id).catch(() => {
       /* prefetch best-effort */

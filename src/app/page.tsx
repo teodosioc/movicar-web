@@ -218,7 +218,7 @@ export default function HomePage() {
                         <div className="relative w-full">
                           <div className="aspect-[4/5] w-full sm:aspect-[16/15]">
                             <img
-                              src="/examples/lateral-direita.png"
+                              src="/examples/lateral-direita.82ad28ca.webp"
                               alt="Foto lateral direita do veículo"
                               className="h-full w-full object-cover"
                             />
