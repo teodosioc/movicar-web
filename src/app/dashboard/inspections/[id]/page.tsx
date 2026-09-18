@@ -1,11 +1,15 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
-import { ArrowLeft, MapPin, X } from "lucide-react";
+import { buildInspectionMapsUrl } from "@/app/lib/inspectionMapsUrl";
+import InspectionMediaGallery, {
+  type GalleryMediaItem,
+} from "@/app/components/InspectionMediaGallery";
+import { ArrowLeft, Images, MapPin } from "lucide-react";
 
 type Inspection = {
   id: string;
@@ -102,7 +106,29 @@ export default function InspectionDetailPage() {
   const [kmTraveledInPeriod, setKmTraveledInPeriod] = useState<number | null>(
     null
   );
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+
+  // Fotos na sequência das etapas da vistoria; vídeos ao final. Mídias sem
+  // etapa identificada permanecem na lista (ordenadas por último entre as
+  // fotos, sem rótulo).
+  const galleryItems = useMemo<GalleryMediaItem[]>(() => {
+    const photos = media.filter((m) => m.media_type === "photo");
+    const videos = media.filter((m) => m.media_type !== "photo");
+    return [...photos, ...videos].map((m) => ({
+      id: m.id,
+      url: m.signed_url ?? null,
+      type: m.media_type === "photo" ? "photo" : "video",
+      label: m.item_name,
+    }));
+  }, [media]);
+
+  const openGallery = useCallback(
+    (mediaId: string) => {
+      const idx = galleryItems.findIndex((g) => g.id === mediaId);
+      if (idx >= 0) setGalleryIndex(idx);
+    },
+    [galleryItems]
+  );
 
   const loadInspection = useCallback(async () => {
     if (!inspectionId) {
@@ -239,17 +265,6 @@ export default function InspectionDetailPage() {
     void loadInspection();
   }, [loadInspection]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSelectedImage(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
   const formatDate = (value?: string | null) => {
     if (!value) return "-";
 
@@ -257,20 +272,6 @@ export default function InspectionDetailPage() {
     if (Number.isNaN(date.getTime())) return "-";
 
     return date.toLocaleString("pt-BR");
-  };
-
-  const openMaps = () => {
-    if (inspection?.latitude == null || inspection?.longitude == null) return;
-
-    window.open(
-      `https://www.google.com/maps?q=${inspection.latitude},${inspection.longitude}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
-  const closeImageModal = () => {
-    setSelectedImage(null);
   };
 
   if (loading) {
@@ -362,13 +363,18 @@ export default function InspectionDetailPage() {
           </div>
 
           {inspection.latitude != null && inspection.longitude != null && (
-            <button
-              onClick={openMaps}
-              className="mt-4 flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
+            <a
+              href={buildInspectionMapsUrl(
+                inspection.latitude,
+                inspection.longitude
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
             >
               <MapPin size={16} />
               Ver no mapa
-            </button>
+            </a>
           )}
         </div>
 
@@ -387,21 +393,34 @@ export default function InspectionDetailPage() {
                   {m.media_type === "photo" ? (
                     <button
                       type="button"
-                      onClick={() => m.signed_url && setSelectedImage(m.signed_url)}
-                      className="block w-full cursor-zoom-in"
+                      onClick={() => openGallery(m.id)}
+                      aria-label={`Abrir ${m.item_name ?? "foto"} na galeria`}
+                      className="block w-full cursor-zoom-in focus-visible:ring-2 focus-visible:ring-emerald-400"
                     >
                       <img
                         src={m.signed_url || ""}
-                        alt="Foto da vistoria"
+                        alt={m.item_name ?? "Foto da vistoria"}
                         className="h-40 w-full object-cover transition hover:scale-[1.02]"
                       />
                     </button>
                   ) : (
-                    <video
-                      src={m.signed_url || ""}
-                      controls
-                      className="h-40 w-full object-cover"
-                    />
+                    <div>
+                      <video
+                        src={m.signed_url || ""}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="h-40 w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => openGallery(m.id)}
+                        className="flex min-h-11 w-full items-center justify-center gap-2 bg-slate-900 px-2 py-2 text-sm font-medium text-white transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-emerald-400"
+                      >
+                        <Images size={16} />
+                        Abrir na galeria
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -410,29 +429,12 @@ export default function InspectionDetailPage() {
         </div>
       </div>
 
-      {selectedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
-          onClick={closeImageModal}
-        >
-          <div
-            className="relative max-h-[95vh] w-full max-w-6xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={closeImageModal}
-              className="absolute right-2 top-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow hover:bg-white"
-            >
-              <X size={20} />
-            </button>
-
-            <img
-              src={selectedImage}
-              alt="Imagem ampliada da vistoria"
-              className="max-h-[95vh] w-full rounded-2xl object-contain"
-            />
-          </div>
-        </div>
+      {galleryIndex != null && (
+        <InspectionMediaGallery
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryIndex(null)}
+        />
       )}
     </main>
   );

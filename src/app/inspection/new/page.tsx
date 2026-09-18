@@ -18,6 +18,7 @@ import {
   ensureOpenInspectionSession,
   persistSessionOdometer,
 } from '@/app/lib/services/inspectionSessions'
+import { toValidGeoPair } from '@/app/lib/geoCoordinates'
 
 type InspectionItem = InspectionWizardItem
 
@@ -35,9 +36,28 @@ type MoviCarUser = {
   active?: boolean
 }
 
+type GeoFailureReason =
+  | 'permission_denied'
+  | 'position_unavailable'
+  | 'timeout'
+  | 'unsupported'
+
 type GeoData = {
   latitude: number | null
   longitude: number | null
+  /** Preenchido quando a coleta falhou; coordenadas ficam nulas nesse caso. */
+  errorReason: GeoFailureReason | null
+}
+
+function mapGeoErrorReason(code: number | undefined): GeoFailureReason {
+  switch (code) {
+    case 1:
+      return 'permission_denied'
+    case 3:
+      return 'timeout'
+    default:
+      return 'position_unavailable'
+  }
 }
 
 export default function NewInspectionPage() {
@@ -75,6 +95,7 @@ export default function NewInspectionPage() {
       return {
         latitude: null,
         longitude: null,
+        errorReason: 'unsupported',
       }
     }
 
@@ -84,12 +105,14 @@ export default function NewInspectionPage() {
           resolve({
             latitude: position.coords.latitude ?? null,
             longitude: position.coords.longitude ?? null,
+            errorReason: null,
           })
         },
-        () => {
+        (error) => {
           resolve({
             latitude: null,
             longitude: null,
+            errorReason: mapGeoErrorReason(error?.code),
           })
         },
         {
@@ -174,11 +197,20 @@ export default function NewInspectionPage() {
           throw new Error('Usuário não identificado para iniciar a sessão.')
         }
 
+        // Grava só par completo e válido; par parcial/inválido vira ausência.
+        const startPair = toValidGeoPair(geoData.latitude, geoData.longitude)
+        if (!startPair) {
+          console.warn(
+            '[geo] coleta inicial sem posição válida:',
+            geoData.errorReason ?? 'invalid_pair'
+          )
+        }
+
         const session = await ensureOpenInspectionSession({
           vehicleId,
           driverId: userId,
-          latitude: geoData.latitude,
-          longitude: geoData.longitude,
+          latitude: startPair?.latitude ?? null,
+          longitude: startPair?.longitude ?? null,
         })
 
         const { data: mediaRows, error: mediaError } = await supabase
@@ -349,14 +381,27 @@ export default function NewInspectionPage() {
         ? Number.parseInt(odometerKm, 10)
         : null
 
+      // Coleta final: só sobrescreve a posição da sessão com um par completo
+      // e válido. Falha (permissão/timeout/indisponível) ou par inválido
+      // preservam as coordenadas já gravadas no início da sessão.
+      const finalPair = toValidGeoPair(fallbackGeo.latitude, fallbackGeo.longitude)
+      const finalFailureReason = finalPair
+        ? null
+        : (fallbackGeo.errorReason ?? 'invalid_pair')
+
+      if (finalFailureReason) {
+        console.warn('[geo] coleta final sem posição válida:', finalFailureReason)
+      }
+
       const { error: sessionUpdateError } = await supabase
         .from('inspection_sessions')
         .update({
           status: 'completed',
           finished_at: finishedAt,
-          latitude: fallbackGeo.latitude,
-          longitude: fallbackGeo.longitude,
           odometer: odometerValue,
+          ...(finalPair
+            ? { latitude: finalPair.latitude, longitude: finalPair.longitude }
+            : {}),
         })
         .eq('id', sessionId)
 
@@ -374,6 +419,21 @@ export default function NewInspectionPage() {
         throw sessionFetchError
       }
 
+      // Par usado na vistoria: coleta final válida tem precedência; sem ela,
+      // preserva-se o par já existente na sessão (posição do início). Pares
+      // nunca são combinados entre coletas; sem posição válida, fica ausente.
+      const sessionPair = toValidGeoPair(sessionData.latitude, sessionData.longitude)
+      const inspectionPair = finalPair ?? sessionPair
+
+      // Diagnóstico persistido (consultável em inspections.notes); sem
+      // coordenadas nem dados pessoais. Distingue a posição preservada do
+      // início de uma coleta final bem-sucedida.
+      const geoNotes = finalFailureReason
+        ? inspectionPair
+          ? `geo: coleta final falhou (${finalFailureReason}); preservada a posição do início da sessão`
+          : `geo: sem posição válida no início nem na finalização (final: ${finalFailureReason})`
+        : null
+
       const { data: inspectionData, error: inspectionInsertError } = await supabase
         .from('inspections')
         .insert({
@@ -382,9 +442,9 @@ export default function NewInspectionPage() {
           driver_name: loggedUser?.name ?? null,
           status: 'completed',
           odometer: odometerValue,
-          notes: null,
-          latitude: sessionData.latitude ?? fallbackGeo.latitude,
-          longitude: sessionData.longitude ?? fallbackGeo.longitude,
+          notes: geoNotes,
+          latitude: inspectionPair?.latitude ?? null,
+          longitude: inspectionPair?.longitude ?? null,
           address: null,
           started_at: sessionData.started_at,
           finished_at: sessionData.finished_at ?? finishedAt,

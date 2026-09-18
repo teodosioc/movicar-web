@@ -19,6 +19,7 @@ import {
   signOutMoviCar,
 } from "@/app/lib/movicarAuth";
 import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
+import { buildInspectionMapsUrl } from "@/app/lib/inspectionMapsUrl";
 
 type MoviCarUser = {
   id?: string;
@@ -327,18 +328,6 @@ export default function DashboardPage() {
     router.push(`/dashboard/inspections/${id}`);
   };
 
-  const handleOpenMaps = (
-    latitude?: number | null,
-    longitude?: number | null
-  ) => {
-    if (latitude == null || longitude == null) return;
-    window.open(
-      `https://www.google.com/maps?q=${latitude},${longitude}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
   const todayInspections = useMemo(() => {
     const today = new Date();
 
@@ -624,19 +613,18 @@ export default function DashboardPage() {
                               </p>
                               {inspection.latitude != null &&
                               inspection.longitude != null ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleOpenMaps(
-                                      inspection.latitude,
-                                      inspection.longitude
-                                    )
-                                  }
+                                <a
+                                  href={buildInspectionMapsUrl(
+                                    inspection.latitude,
+                                    inspection.longitude
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50"
                                 >
                                   <MapPin size={14} />
                                   Mapa
-                                </button>
+                                </a>
                               ) : (
                                 <p className="text-sm text-slate-500">-</p>
                               )}
