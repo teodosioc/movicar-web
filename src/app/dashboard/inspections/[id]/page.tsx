@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { buildKmTraveledByInspectionId } from "@/app/lib/inspectionKmPeriod";
+import { buildInspectionMapsUrl } from "@/app/lib/inspectionMapsUrl";
 import { ArrowLeft, MapPin, X } from "lucide-react";
 
 type Inspection = {
@@ -259,16 +260,6 @@ export default function InspectionDetailPage() {
     return date.toLocaleString("pt-BR");
   };
 
-  const openMaps = () => {
-    if (inspection?.latitude == null || inspection?.longitude == null) return;
-
-    window.open(
-      `https://www.google.com/maps?q=${inspection.latitude},${inspection.longitude}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
   const closeImageModal = () => {
     setSelectedImage(null);
   };
@@ -362,13 +353,18 @@ export default function InspectionDetailPage() {
           </div>
 
           {inspection.latitude != null && inspection.longitude != null && (
-            <button
-              onClick={openMaps}
-              className="mt-4 flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
+            <a
+              href={buildInspectionMapsUrl(
+                inspection.latitude,
+                inspection.longitude
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
             >
               <MapPin size={16} />
               Ver no mapa
-            </button>
+            </a>
           )}
         </div>
 
