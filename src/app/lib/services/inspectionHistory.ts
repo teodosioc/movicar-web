@@ -166,6 +166,52 @@ export async function fetchInspectionHistory(
   }
 }
 
+export type OdometerHistoryRow = {
+  id: string
+  vehicle_id: string
+  odometer: number
+  finished_at: string | null
+  created_at: string | null
+}
+
+const ODOMETER_HISTORY_CHUNK = 1000
+
+/**
+ * Histórico completo de odômetro dos veículos informados, paginado em blocos
+ * para não ser truncado pelo limite de linhas por resposta do PostgREST
+ * (padrão 1000). Ordenação determinística (created_at, id) garante blocos
+ * sem repetição nem omissão.
+ */
+export async function fetchOdometerHistoryForVehicles(
+  vehicleIds: string[]
+): Promise<OdometerHistoryRow[]> {
+  if (vehicleIds.length === 0) return []
+
+  const rows: OdometerHistoryRow[] = []
+  let offset = 0
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, vehicle_id, odometer, finished_at, created_at")
+      .in("vehicle_id", vehicleIds)
+      .not("odometer", "is", null)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + ODOMETER_HISTORY_CHUNK - 1)
+
+    if (error) throw error
+
+    const chunk = (data ?? []) as OdometerHistoryRow[]
+    rows.push(...chunk)
+
+    if (chunk.length < ODOMETER_HISTORY_CHUNK) break
+    offset += ODOMETER_HISTORY_CHUNK
+  }
+
+  return rows
+}
+
 /** Total de vistorias criadas hoje (fuso local), independente dos filtros do histórico. */
 export async function countInspectionsToday(): Promise<number> {
   const now = new Date()

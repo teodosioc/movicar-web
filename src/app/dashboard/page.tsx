@@ -34,10 +34,12 @@ import { buildInspectionMapsUrl } from "@/app/lib/inspectionMapsUrl";
 import {
   countInspectionsToday,
   fetchInspectionHistory,
+  fetchOdometerHistoryForVehicles,
   type InspectionHistoryFilters,
   type InspectionHistoryPeriod,
   type InspectionHistoryRow,
   type InspectionHistoryVehicle,
+  type OdometerHistoryRow,
 } from "@/app/lib/services/inspectionHistory";
 
 type MoviCarUser = {
@@ -349,6 +351,12 @@ export default function DashboardPage() {
 
   const historyRequestIdRef = useRef(0);
   const [historyReloadToken, setHistoryReloadToken] = useState(0);
+  // Histórico de odômetro por veículo, carregado uma única vez por sessão da
+  // página: o cálculo de "Km no período" usa o histórico completo do veículo,
+  // não apenas as linhas visíveis, e não precisa ser rebaixado a cada página.
+  const odometerHistoryCacheRef = useRef(
+    new Map<string, OdometerHistoryRow[]>()
+  );
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -456,18 +464,19 @@ export default function DashboardPage() {
 
         const vehicleIds = [...new Set(result.rows.map((r) => r.vehicle_id))];
 
-        let kmMap: Record<string, number | null> = {};
-        if (vehicleIds.length > 0) {
-          const { data: historyOdometerRows, error: odometerError } =
-            await supabase
-              .from("inspections")
-              .select("id, vehicle_id, odometer, finished_at, created_at")
-              .in("vehicle_id", vehicleIds)
-              .not("odometer", "is", null);
-
-          if (odometerError) throw odometerError;
-          kmMap = buildKmTraveledByInspectionId(historyOdometerRows ?? []);
+        const cache = odometerHistoryCacheRef.current;
+        const missingIds = vehicleIds.filter((id) => !cache.has(id));
+        if (missingIds.length > 0) {
+          const fetched = await fetchOdometerHistoryForVehicles(missingIds);
+          for (const id of missingIds) cache.set(id, []);
+          for (const row of fetched) {
+            cache.get(row.vehicle_id)?.push(row);
+          }
         }
+
+        const kmMap = buildKmTraveledByInspectionId(
+          vehicleIds.flatMap((id) => cache.get(id) ?? [])
+        );
 
         if (requestId !== historyRequestIdRef.current) return;
 
