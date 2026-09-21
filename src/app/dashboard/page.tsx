@@ -68,6 +68,7 @@ type DashboardTab = "vistorias" | "veiculos";
 
 type VehicleFilter =
   | ""
+  | "pendencias"
   | "atrasados"
   | "vence-hoje"
   | "em-dia"
@@ -75,6 +76,7 @@ type VehicleFilter =
 
 const VEHICLE_FILTER_OPTIONS: { value: VehicleFilter; label: string }[] = [
   { value: "", label: "Todos" },
+  { value: "pendencias", label: "Pendências" },
   { value: "atrasados", label: "Atrasados" },
   { value: "vence-hoje", label: "Vencem hoje" },
   { value: "em-dia", label: "Em dia" },
@@ -670,13 +672,18 @@ export default function DashboardPage() {
 
   const filteredVehicles = useMemo(() => {
     if (!vehicleFilter) return vehicles;
+    // "Pendências" = Atrasados + Vencem hoje, mesmo universo e mesma ordem
+    // do bloco de pendências (maiores atrasos primeiro).
+    if (vehicleFilter === "pendencias") {
+      return pendingVehicles.map((p) => p.vehicle);
+    }
     return vehicles.filter(
       (v) =>
         VEHICLE_FILTER_BY_STATUS_LABEL[
           getVehicleInspectionStatus(v).label
         ] === vehicleFilter
     );
-  }, [vehicles, vehicleFilter]);
+  }, [vehicles, vehicleFilter, pendingVehicles]);
 
   const historyFilterVehicle = useMemo(
     () => vehicles.find((v) => v.id === filters.vehicleId) ?? null,
@@ -689,7 +696,19 @@ export default function DashboardPage() {
   }, []);
 
   const openVehicleHistory = useCallback((vehicleId: string) => {
-    setFilters((current) => ({ ...current, vehicleId, page: 1 }));
+    // Limpa busca, período e status para que nada oculte as vistorias do
+    // veículo selecionado; mantém ordenação e itens por página.
+    setSearchInput("");
+    setFilters((current) => ({
+      ...current,
+      search: "",
+      period: "all",
+      customFrom: "",
+      customTo: "",
+      status: "",
+      vehicleId,
+      page: 1,
+    }));
     setActiveTab("vistorias");
   }, []);
 
@@ -949,13 +968,7 @@ export default function DashboardPage() {
               {pendingVehicles.length > 5 ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    openVehiclesTab(
-                      pendingVehicles.some((p) => p.daysOverdue > 0)
-                        ? "atrasados"
-                        : "vence-hoje"
-                    )
-                  }
+                  onClick={() => openVehiclesTab("pendencias")}
                   className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-semibold text-green-700 transition hover:text-green-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                 >
                   Ver todas as pendências ({pendingVehicles.length})
