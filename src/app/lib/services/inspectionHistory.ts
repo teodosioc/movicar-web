@@ -10,6 +10,8 @@ export type InspectionHistoryFilters = {
   /** yyyy-mm-dd (fuso local), usado quando period === "custom" */
   customTo: string
   status: string
+  /** Restringe o histórico a um veículo específico ("" = todos). */
+  vehicleId: string
   sort: "desc" | "asc"
   page: number
   perPage: number
@@ -143,6 +145,10 @@ export async function fetchInspectionHistory(
 
   if (filters.status) {
     query = query.eq("status", filters.status)
+  }
+
+  if (filters.vehicleId) {
+    query = query.eq("vehicle_id", filters.vehicleId)
   }
 
   const range = buildPeriodRange(filters)

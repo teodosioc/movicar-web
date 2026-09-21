@@ -23,6 +23,7 @@ import {
   PlusCircle,
   Search,
   UserCircle2,
+  X,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabaseClient";
 import {
@@ -57,12 +58,35 @@ type VehicleRow = {
   brand: string | null;
   year: string | null;
   active: boolean;
+  assigned_user_id: string | null;
   inspection_frequency: "daily" | "weekly" | "biweekly" | "monthly" | null;
   last_inspection_at: string | null;
   next_inspection_due: string | null;
 };
 
 type DashboardTab = "vistorias" | "veiculos";
+
+type VehicleFilter =
+  | ""
+  | "atrasados"
+  | "vence-hoje"
+  | "em-dia"
+  | "pendente-inicial";
+
+const VEHICLE_FILTER_OPTIONS: { value: VehicleFilter; label: string }[] = [
+  { value: "", label: "Todos" },
+  { value: "atrasados", label: "Atrasados" },
+  { value: "vence-hoje", label: "Vencem hoje" },
+  { value: "em-dia", label: "Em dia" },
+  { value: "pendente-inicial", label: "Pendentes de primeira vistoria" },
+];
+
+const VEHICLE_FILTER_BY_STATUS_LABEL: Record<string, VehicleFilter> = {
+  Atrasada: "atrasados",
+  "Vence hoje": "vence-hoje",
+  "Em dia": "em-dia",
+  "Pendente inicial": "pendente-inicial",
+};
 
 const PER_PAGE_OPTIONS = [10, 25, 50];
 
@@ -87,6 +111,7 @@ const DEFAULT_FILTERS: InspectionHistoryFilters = {
   customFrom: "",
   customTo: "",
   status: "",
+  vehicleId: "",
   sort: "desc",
   page: 1,
   perPage: 10,
@@ -175,6 +200,35 @@ function getVehicleInspectionStatus(vehicle: VehicleRow) {
   };
 }
 
+/**
+ * Dias de atraso por datas de calendário no fuso local (independe do horário
+ * do dia). Só faz sentido para veículos classificados como "Atrasada" pela
+ * regra de getVehicleInspectionStatus; para os demais retorna 0.
+ */
+function getCalendarDaysOverdue(vehicle: VehicleRow): number {
+  if (!vehicle.next_inspection_due) return 0;
+
+  const due = new Date(vehicle.next_inspection_due);
+  if (Number.isNaN(due.getTime())) return 0;
+
+  const today = new Date();
+  const todayOnly = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+  const dueOnly = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+
+  const diff = Math.round(
+    (todayOnly.getTime() - dueOnly.getTime()) / 86400000
+  );
+  return diff > 0 ? diff : 0;
+}
+
+function formatOverdueLabel(days: number): string {
+  return days === 1 ? "Há 1 dia em atraso" : `Há ${days} dias em atraso`;
+}
+
 function getInspectionStatusBadge(status?: string | null) {
   switch (String(status ?? "").toLowerCase()) {
     case "completed":
@@ -218,16 +272,23 @@ function getInspectionVehicle(
  */
 function parseStateFromUrl(): {
   tab: DashboardTab;
+  vehicleFilter: VehicleFilter;
   filters: InspectionHistoryFilters;
 } {
   if (typeof window === "undefined") {
-    return { tab: "vistorias", filters: DEFAULT_FILTERS };
+    return { tab: "vistorias", vehicleFilter: "", filters: DEFAULT_FILTERS };
   }
 
   const params = new URLSearchParams(window.location.search);
 
   const tab: DashboardTab =
     params.get("tab") === "veiculos" ? "veiculos" : "vistorias";
+
+  const vehicleFilter: VehicleFilter = VEHICLE_FILTER_OPTIONS.some(
+    (o) => o.value && o.value === params.get("vfiltro")
+  )
+    ? (params.get("vfiltro") as VehicleFilter)
+    : "";
 
   const period = PERIOD_OPTIONS.some((o) => o.value === params.get("periodo"))
     ? (params.get("periodo") as InspectionHistoryPeriod)
@@ -247,12 +308,14 @@ function parseStateFromUrl(): {
 
   return {
     tab,
+    vehicleFilter,
     filters: {
       search: params.get("q") ?? "",
       period,
       customFrom: params.get("de") ?? "",
       customTo: params.get("ate") ?? "",
       status,
+      vehicleId: params.get("veiculo") ?? "",
       sort: params.get("ordem") === "asc" ? "asc" : "desc",
       page,
       perPage,
@@ -260,11 +323,17 @@ function parseStateFromUrl(): {
   };
 }
 
-function writeStateToUrl(tab: DashboardTab, filters: InspectionHistoryFilters) {
+function writeStateToUrl(
+  tab: DashboardTab,
+  vehicleFilter: VehicleFilter,
+  filters: InspectionHistoryFilters
+) {
   if (typeof window === "undefined") return;
 
   const params = new URLSearchParams();
   if (tab !== "vistorias") params.set("tab", tab);
+  if (vehicleFilter) params.set("vfiltro", vehicleFilter);
+  if (filters.vehicleId) params.set("veiculo", filters.vehicleId);
   if (filters.search) params.set("q", filters.search);
   if (filters.period !== "all") params.set("periodo", filters.period);
   if (filters.customFrom) params.set("de", filters.customFrom);
@@ -336,6 +405,12 @@ export default function DashboardPage() {
 
   const [initialState] = useState(parseStateFromUrl);
   const [activeTab, setActiveTab] = useState<DashboardTab>(initialState.tab);
+  const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>(
+    initialState.vehicleFilter
+  );
+  const [driverNamesByUserId, setDriverNamesByUserId] = useState<
+    Record<string, string>
+  >({});
   const [filters, setFilters] = useState<InspectionHistoryFilters>(
     initialState.filters
   );
@@ -393,6 +468,7 @@ export default function DashboardPage() {
                 brand,
                 year,
                 active,
+                assigned_user_id,
                 inspection_frequency,
                 last_inspection_at,
                 next_inspection_due
@@ -405,8 +481,40 @@ export default function DashboardPage() {
 
         if (vehiclesRes.error) throw vehiclesRes.error;
 
-        setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
+        const vehicleRows = (vehiclesRes.data ?? []) as VehicleRow[];
+        setVehicles(vehicleRows);
         setTodayInspections(todayCount);
+
+        // Nome do motorista vinculado (falha aqui não derruba o dashboard).
+        const assignedIds = [
+          ...new Set(
+            vehicleRows
+              .map((v) => v.assigned_user_id)
+              .filter((id): id is string => Boolean(id))
+          ),
+        ];
+        if (assignedIds.length > 0) {
+          try {
+            const { data: userRows, error: usersError } = await supabase
+              .from("users")
+              .select("id, name")
+              .in("id", assignedIds);
+            if (usersError) throw usersError;
+            const names: Record<string, string> = {};
+            for (const row of (userRows ?? []) as {
+              id: string;
+              name: string | null;
+            }[]) {
+              if (row.name) names[row.id] = row.name;
+            }
+            setDriverNamesByUserId(names);
+          } catch (driversError) {
+            console.error(
+              "Erro ao carregar motoristas vinculados:",
+              driversError
+            );
+          }
+        }
       } catch (error) {
         console.error("Erro ao carregar dashboard:", error);
         await signOutMoviCar();
@@ -433,8 +541,8 @@ export default function DashboardPage() {
   }, [searchInput]);
 
   useEffect(() => {
-    writeStateToUrl(activeTab, filters);
-  }, [activeTab, filters]);
+    writeStateToUrl(activeTab, vehicleFilter, filters);
+  }, [activeTab, vehicleFilter, filters]);
 
   useEffect(() => {
     if (!user) return;
@@ -544,6 +652,47 @@ export default function DashboardPage() {
     };
   }, [vehicles]);
 
+  // Mesma regra do cartão e da listagem (getVehicleInspectionStatus), sobre o
+  // mesmo universo de veículos ativos: atrasados primeiro (maior atraso no
+  // topo), depois os que vencem hoje.
+  const pendingVehicles = useMemo(() => {
+    const overdue = vehicles
+      .filter((v) => getVehicleInspectionStatus(v).label === "Atrasada")
+      .map((v) => ({ vehicle: v, daysOverdue: getCalendarDaysOverdue(v) }))
+      .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+    const dueToday = vehicles
+      .filter((v) => getVehicleInspectionStatus(v).label === "Vence hoje")
+      .map((v) => ({ vehicle: v, daysOverdue: 0 }));
+
+    return [...overdue, ...dueToday];
+  }, [vehicles]);
+
+  const filteredVehicles = useMemo(() => {
+    if (!vehicleFilter) return vehicles;
+    return vehicles.filter(
+      (v) =>
+        VEHICLE_FILTER_BY_STATUS_LABEL[
+          getVehicleInspectionStatus(v).label
+        ] === vehicleFilter
+    );
+  }, [vehicles, vehicleFilter]);
+
+  const historyFilterVehicle = useMemo(
+    () => vehicles.find((v) => v.id === filters.vehicleId) ?? null,
+    [vehicles, filters.vehicleId]
+  );
+
+  const openVehiclesTab = useCallback((filter: VehicleFilter) => {
+    setVehicleFilter(filter);
+    setActiveTab("veiculos");
+  }, []);
+
+  const openVehicleHistory = useCallback((vehicleId: string) => {
+    setFilters((current) => ({ ...current, vehicleId, page: 1 }));
+    setActiveTab("vistorias");
+  }, []);
+
   const totalPages = Math.max(1, Math.ceil(historyTotal / filters.perPage));
   const rangeStart =
     historyTotal === 0 ? 0 : (filters.page - 1) * filters.perPage + 1;
@@ -555,7 +704,8 @@ export default function DashboardPage() {
   const hasActiveFilters =
     filters.search !== "" ||
     filters.period !== "all" ||
-    filters.status !== "";
+    filters.status !== "" ||
+    filters.vehicleId !== "";
 
   if (loading) {
     return (
@@ -632,7 +782,12 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <button
+            type="button"
+            onClick={() => openVehiclesTab("")}
+            aria-label={`Veículos ativos: ${vehicles.length}. Abrir listagem de veículos`}
+            className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-green-300 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+          >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-slate-500 sm:text-sm">
                 Veículos ativos
@@ -644,9 +799,17 @@ export default function DashboardPage() {
             <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
               {vehicles.length}
             </p>
-          </div>
+            <p className="mt-1 flex items-center gap-1 text-xs font-medium text-green-700">
+              Ver veículos <ChevronRight size={12} />
+            </p>
+          </button>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <button
+            type="button"
+            onClick={() => openVehiclesTab("atrasados")}
+            aria-label={`Vistorias em atraso: ${vehicleStats.overdue}. Abrir veículos atrasados`}
+            className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-red-300 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+          >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-slate-500 sm:text-sm">
                 Vistorias em atraso
@@ -658,9 +821,17 @@ export default function DashboardPage() {
             <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
               {vehicleStats.overdue}
             </p>
-          </div>
+            <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-700">
+              Ver atrasados <ChevronRight size={12} />
+            </p>
+          </button>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <button
+            type="button"
+            onClick={() => openVehiclesTab("vence-hoje")}
+            aria-label={`Vencem hoje: ${vehicleStats.dueToday}. Abrir veículos que vencem hoje`}
+            className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-amber-300 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-slate-500 sm:text-sm">Vencem hoje</p>
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100">
@@ -670,7 +841,129 @@ export default function DashboardPage() {
             <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
               {vehicleStats.dueToday}
             </p>
+            <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-700">
+              Ver vencimentos <ChevronRight size={12} />
+            </p>
+          </button>
+        </section>
+
+        <section
+          aria-label="Pendências de vistoria"
+          className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-bold text-slate-900">
+              Pendências de vistoria
+            </h2>
+            {pendingVehicles.length > 0 ? (
+              <p className="text-sm text-slate-500">
+                {pendingVehicles.length === 1
+                  ? "1 veículo pendente"
+                  : `${pendingVehicles.length} veículos pendentes`}
+              </p>
+            ) : null}
           </div>
+
+          {pendingVehicles.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">
+              Nenhuma vistoria vencida ou prevista para hoje.
+              {vehicleStats.pendingInitial > 0
+                ? ` ${vehicleStats.pendingInitial} ${
+                    vehicleStats.pendingInitial === 1
+                      ? "veículo aguarda"
+                      : "veículos aguardam"
+                  } a primeira vistoria.`
+                : ""}
+            </p>
+          ) : (
+            <>
+              <ul className="mt-3 divide-y divide-slate-100">
+                {pendingVehicles.slice(0, 5).map(({ vehicle, daysOverdue }) => {
+                  const isOverdue = daysOverdue > 0;
+                  const fullName = [vehicle.brand, vehicle.model]
+                    .filter(Boolean)
+                    .join(" ");
+                  const driverName = vehicle.assigned_user_id
+                    ? driverNamesByUserId[vehicle.assigned_user_id]
+                    : undefined;
+
+                  return (
+                    <li
+                      key={vehicle.id}
+                      className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div
+                          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                            isOverdue ? "bg-red-100" : "bg-amber-100"
+                          }`}
+                        >
+                          {isOverdue ? (
+                            <AlertTriangle
+                              size={15}
+                              className="text-red-600"
+                            />
+                          ) : (
+                            <CalendarClock
+                              size={15}
+                              className="text-amber-600"
+                            />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900">
+                            {vehicle.plate}
+                            <span className="ml-2 text-sm font-normal text-slate-600">
+                              {fullName || vehicle.model || ""}
+                            </span>
+                          </p>
+                          <p className="text-sm text-slate-600">
+                            <span
+                              className={`font-semibold ${
+                                isOverdue ? "text-red-700" : "text-amber-700"
+                              }`}
+                            >
+                              {isOverdue
+                                ? formatOverdueLabel(daysOverdue)
+                                : "Vence hoje"}
+                            </span>
+                            {" · Prevista: "}
+                            {formatDate(vehicle.next_inspection_due)}
+                            {driverName ? ` · Motorista: ${driverName}` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openVehicleHistory(vehicle.id)}
+                        className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                      >
+                        Ver histórico
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {pendingVehicles.length > 5 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    openVehiclesTab(
+                      pendingVehicles.some((p) => p.daysOverdue > 0)
+                        ? "atrasados"
+                        : "vence-hoje"
+                    )
+                  }
+                  className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-semibold text-green-700 transition hover:text-green-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                >
+                  Ver todas as pendências ({pendingVehicles.length})
+                  <ChevronRight size={14} />
+                </button>
+              ) : null}
+            </>
+          )}
         </section>
 
         <div
@@ -718,6 +1011,25 @@ export default function DashboardPage() {
                 Todas as inspeções registradas, com busca, filtros e paginação.
               </p>
             </div>
+
+            {filters.vehicleId ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-800">
+                  Somente veículo:{" "}
+                  <strong>
+                    {historyFilterVehicle?.plate ?? filters.vehicleId}
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={() => updateFilters({ vehicleId: "" })}
+                    aria-label="Remover filtro de veículo"
+                    className="flex h-6 w-6 items-center justify-center rounded-full text-green-700 transition hover:bg-green-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
               <div className="relative sm:col-span-2 xl:col-span-1">
@@ -1189,6 +1501,49 @@ export default function DashboardPage() {
                 Periodicidade, última vistoria e próxima vistoria prevista.
               </p>
 
+              <div
+                role="group"
+                aria-label="Filtrar veículos por situação"
+                className="mt-4 flex flex-wrap gap-2"
+              >
+                {VEHICLE_FILTER_OPTIONS.map((option) => {
+                  const isActive = vehicleFilter === option.value;
+                  return (
+                    <button
+                      key={option.value || "todos"}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() =>
+                        setVehicleFilter(isActive ? "" : option.value)
+                      }
+                      className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${
+                        isActive
+                          ? "border-green-600 bg-green-600 text-white shadow-sm"
+                          : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      {option.label}
+                      {isActive && option.value ? <X size={14} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {vehicleFilter ? (
+                <p className="mt-3 text-sm text-slate-600" aria-live="polite">
+                  {filteredVehicles.length === 1
+                    ? "1 veículo"
+                    : `${filteredVehicles.length} veículos`}{" "}
+                  no filtro &quot;
+                  {
+                    VEHICLE_FILTER_OPTIONS.find(
+                      (o) => o.value === vehicleFilter
+                    )?.label
+                  }
+                  &quot;. Toque no filtro ativo para removê-lo.
+                </p>
+              ) : null}
+
               <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
                 <div className="hidden grid-cols-5 gap-4 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
                   <div>Placa</div>
@@ -1198,13 +1553,15 @@ export default function DashboardPage() {
                   <div>Status</div>
                 </div>
 
-                {vehicles.length === 0 ? (
+                {filteredVehicles.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-slate-500">
-                    Nenhum veículo encontrado.
+                    {vehicleFilter
+                      ? "Nenhum veículo nessa situação."
+                      : "Nenhum veículo encontrado."}
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-200">
-                    {vehicles.map((vehicle) => {
+                    {filteredVehicles.map((vehicle) => {
                       const status = getVehicleInspectionStatus(vehicle);
                       const fullName = [vehicle.brand, vehicle.model]
                         .filter(Boolean)
@@ -1268,6 +1625,13 @@ export default function DashboardPage() {
                             >
                               {status.label}
                             </span>
+                            {status.label === "Atrasada" ? (
+                              <p className="mt-1 text-xs font-medium text-red-700">
+                                {formatOverdueLabel(
+                                  getCalendarDaysOverdue(vehicle)
+                                )}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                       );
