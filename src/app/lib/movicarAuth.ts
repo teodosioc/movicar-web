@@ -4,6 +4,7 @@ import {
   fetchMoviCarProfileByUserId,
   type MoviCarUserRow,
 } from "@/app/lib/movicarUser";
+import { clearCompanyViewSelection } from "@/app/lib/companyView";
 
 export type MoviCarCachedUser = {
   id: string;
@@ -41,6 +42,7 @@ export async function signOutMoviCar() {
   if (typeof window !== "undefined") {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    clearCompanyViewSelection();
   }
 }
 

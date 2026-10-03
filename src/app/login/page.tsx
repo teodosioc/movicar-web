@@ -5,6 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/app/lib/supabaseClient";
 import { cacheProfileFromSession } from "@/app/lib/movicarAuth";
+import { clearCompanyViewSelection } from "@/app/lib/companyView";
 
 type MoviCarProfile = {
   id: string;
@@ -39,6 +40,8 @@ export default function LoginPage() {
 
       localStorage.removeItem("movicar_token");
       localStorage.removeItem("movicar_user");
+      // Todo login começa na visão da própria empresa.
+      clearCompanyViewSelection();
 
       const { data: authData, error: authError } =
         await supabase.auth.signInWithPassword({

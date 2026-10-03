@@ -42,6 +42,8 @@ export type SavedVehicle = {
 };
 
 type Props = {
+  /** Empresa que receberá o veículo (a empresa em exibição no dashboard). */
+  companyId: string;
   onSaved: (vehicle: SavedVehicle) => void;
   onCancel: () => void;
 };
@@ -50,7 +52,7 @@ const inputClass =
   "mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 outline-none ring-green-600 focus:ring-2";
 const labelClass = "block text-sm font-medium text-slate-700";
 
-export default function VehicleForm({ onSaved, onCancel }: Props) {
+export default function VehicleForm({ companyId, onSaved, onCancel }: Props) {
   const [plate, setPlate] = useState("");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -107,6 +109,7 @@ export default function VehicleForm({ onSaved, onCancel }: Props) {
       const { data: existing, error: existingError } = await supabase
         .from("vehicles")
         .select("id")
+        .eq("company_id", companyId)
         .eq("plate", plate)
         .eq("active", true)
         .limit(1);
@@ -117,10 +120,10 @@ export default function VehicleForm({ onSaved, onCancel }: Props) {
         return;
       }
 
-      // company_id é preenchido pelo banco com a empresa do usuário logado.
       const { data, error: insertError } = await supabase
         .from("vehicles")
         .insert({
+          company_id: companyId,
           plate,
           brand: brandValue,
           model: modelValue,

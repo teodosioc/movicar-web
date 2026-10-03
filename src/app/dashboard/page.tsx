@@ -48,6 +48,13 @@ import VehicleForm, {
   type SavedVehicle,
   type VehicleOperationType,
 } from "@/app/components/VehicleForm";
+import {
+  companyViewLabel,
+  resolveCompanyView,
+  saveCompanyViewSelection,
+  type CompanyView,
+} from "@/app/lib/companyView";
+import { formatInspectionType } from "@/app/lib/inspectionType";
 
 type MoviCarUser = {
   id?: string;
@@ -417,7 +424,11 @@ export default function DashboardPage() {
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [todayInspections, setTodayInspections] = useState(0);
   const [showVehicleForm, setShowVehicleForm] = useState(false);
-  const [vehicleSavedPlate, setVehicleSavedPlate] = useState("");
+  const [savedVehicle, setSavedVehicle] = useState<{
+    id: string;
+    plate: string;
+  } | null>(null);
+  const [view, setView] = useState<CompanyView | null>(null);
 
   const [initialState] = useState(parseStateFromUrl);
   const [activeTab, setActiveTab] = useState<DashboardTab>(initialState.tab);
@@ -450,7 +461,7 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    const loadDashboard = async () => {
+    const loadUser = async () => {
       try {
         const parsedUser = await resolveMoviCarUserFromAuth();
         if (!parsedUser) {
@@ -471,26 +482,54 @@ export default function DashboardPage() {
           return;
         }
 
-        setUser(parsedUser);
+        const companyView = await resolveCompanyView({
+          id: parsedUser.id,
+          role,
+        });
 
+        setUser(parsedUser);
+        setView(companyView);
+      } catch (error) {
+        console.error("Erro ao carregar dashboard:", error);
+        await signOutMoviCar();
+        router.replace("/login");
+      }
+    };
+
+    loadUser();
+  }, [router]);
+
+  // Empresa em exibição. Loja não tem vistoria periódica: blocos e filtros de
+  // periodicidade ficam ocultos e a listagem mostra os veículos em estoque.
+  const viewCompanyId = view?.company.id ?? "";
+  const isStore = view?.company.company_type === "vehicle_store";
+
+  // Veículos e indicadores sempre limitados à empresa em exibição (o admin
+  // enxerga todas as empresas, então o filtro é explícito).
+  useEffect(() => {
+    if (!viewCompanyId) return;
+
+    let cancelled = false;
+
+    const loadCompanyData = async () => {
+      try {
         const [vehiclesRes, todayCount] = await Promise.all([
           supabase
             .from("vehicles")
-            .select(
-              role === "lojista"
-                ? STORE_VEHICLE_COLUMNS
-                : RENTAL_VEHICLE_COLUMNS
-            )
+            .select(isStore ? STORE_VEHICLE_COLUMNS : RENTAL_VEHICLE_COLUMNS)
+            .eq("company_id", viewCompanyId)
             .eq("active", true)
             .order("plate", { ascending: true }),
-          countInspectionsToday(),
+          countInspectionsToday(viewCompanyId),
         ]);
 
+        if (cancelled) return;
         if (vehiclesRes.error) throw vehiclesRes.error;
 
         const vehicleRows = (vehiclesRes.data ?? []) as unknown as VehicleRow[];
         setVehicles(vehicleRows);
         setTodayInspections(todayCount);
+        setDriverNamesByUserId({});
 
         // Nome do motorista vinculado (falha aqui não derruba o dashboard).
         const assignedIds = [
@@ -507,6 +546,7 @@ export default function DashboardPage() {
               .select("id, name")
               .in("id", assignedIds);
             if (usersError) throw usersError;
+            if (cancelled) return;
             const names: Record<string, string> = {};
             for (const row of (userRows ?? []) as {
               id: string;
@@ -523,17 +563,22 @@ export default function DashboardPage() {
           }
         }
       } catch (error) {
+        if (cancelled) return;
         console.error("Erro ao carregar dashboard:", error);
         await signOutMoviCar();
         router.replace("/login");
         return;
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    loadDashboard();
-  }, [router]);
+    loadCompanyData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, viewCompanyId, isStore]);
 
   // Busca com debounce, sempre voltando para a primeira página.
   useEffect(() => {
@@ -552,7 +597,7 @@ export default function DashboardPage() {
   }, [activeTab, vehicleFilter, filters]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !viewCompanyId) return;
 
     const requestId = ++historyRequestIdRef.current;
 
@@ -561,7 +606,10 @@ export default function DashboardPage() {
       setHistoryError(false);
 
       try {
-        const result = await fetchInspectionHistory(filters);
+        const result = await fetchInspectionHistory(filters, {
+          companyId: viewCompanyId,
+          includeType: isStore,
+        });
         if (requestId !== historyRequestIdRef.current) return;
 
         // Página além do total (ex.: filtro reduziu o resultado): recua.
@@ -610,7 +658,7 @@ export default function DashboardPage() {
     };
 
     loadHistory();
-  }, [user, filters, historyReloadToken]);
+  }, [user, filters, historyReloadToken, viewCompanyId, isStore]);
 
   const handleLogout = async () => {
     await signOutMoviCar();
@@ -630,8 +678,33 @@ export default function DashboardPage() {
       [...current, vehicle].sort((a, b) => a.plate.localeCompare(b.plate))
     );
     setShowVehicleForm(false);
-    setVehicleSavedPlate(vehicle.plate);
+    setSavedVehicle({ id: vehicle.id, plate: vehicle.plate });
     setActiveTab("veiculos");
+  };
+
+  // Troca de empresa (só admin): limpa filtros e listas para não misturar
+  // dados das duas empresas enquanto a nova visão carrega.
+  const handleViewChange = (companyId: string) => {
+    if (!view || companyId === view.company.id) return;
+    const company = view.companies.find((c) => c.id === companyId);
+    if (!company) return;
+
+    saveCompanyViewSelection(company.id);
+    setVehicles([]);
+    setTodayInspections(0);
+    setHistoryRows([]);
+    setHistoryTotal(0);
+    setHistoryLoading(true);
+    setSearchInput("");
+    setFilters((current) => ({
+      ...DEFAULT_FILTERS,
+      sort: current.sort,
+      perPage: current.perPage,
+    }));
+    setVehicleFilter("");
+    setShowVehicleForm(false);
+    setSavedVehicle(null);
+    setView({ ...view, company });
   };
 
   const updateFilters = useCallback(
@@ -683,10 +756,6 @@ export default function DashboardPage() {
 
     return [...overdue, ...dueToday];
   }, [vehicles]);
-
-  // Loja não tem vistoria periódica: blocos e filtros de periodicidade ficam
-  // ocultos e a listagem mostra todos os veículos em estoque.
-  const isStore = String(user?.role ?? "").toLowerCase() === "lojista";
 
   const filteredVehicles = useMemo(() => {
     if (isStore || !vehicleFilter) return vehicles;
@@ -762,6 +831,33 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
       <div className="mx-auto max-w-7xl">
+        {view?.canSwitch ? (
+          <div
+            role="group"
+            aria-label="Empresa em exibição"
+            className="mb-4 flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:inline-flex sm:flex-row"
+          >
+            {view.companies.map((company) => {
+              const isActive = company.id === view.company.id;
+              return (
+                <button
+                  key={company.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => handleViewChange(company.id)}
+                  className={`min-h-11 rounded-xl px-5 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${
+                    isActive
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {companyViewLabel(company)}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">
@@ -776,7 +872,10 @@ export default function DashboardPage() {
                 <p className="mt-1 text-sm text-slate-600">
                   Bem-vindo,{" "}
                   <span className="font-semibold">
-                    {user?.name || (isStore ? "Lojista" : "Admin")}
+                    {user?.name ||
+                      (String(user?.role ?? "").toLowerCase() === "lojista"
+                        ? "Lojista"
+                        : "Admin")}
                   </span>
                 </p>
                 <p className="mt-2 text-sm text-slate-500">
@@ -792,7 +891,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setVehicleSavedPlate("");
+                    setSavedVehicle(null);
                     setShowVehicleForm(true);
                   }}
                   className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-green-600 bg-white px-5 py-3 text-sm font-semibold text-green-700 transition hover:bg-green-50"
@@ -834,6 +933,7 @@ export default function DashboardPage() {
             </p>
             <div className="mt-4">
               <VehicleForm
+                companyId={viewCompanyId}
                 onSaved={handleVehicleSaved}
                 onCancel={() => setShowVehicleForm(false)}
               />
@@ -841,23 +941,35 @@ export default function DashboardPage() {
           </section>
         ) : null}
 
-        {isStore && vehicleSavedPlate ? (
+        {isStore && savedVehicle ? (
           <div
             role="status"
-            className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+            className="mt-5 flex flex-col gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 sm:flex-row sm:items-center sm:justify-between"
           >
             <span>
-              Veículo <strong>{vehicleSavedPlate}</strong> cadastrado com
-              sucesso.
+              Veículo <strong>{savedVehicle.plate}</strong> cadastrado com
+              sucesso. Deseja iniciar a vistoria de entrada?
             </span>
-            <button
-              type="button"
-              onClick={() => setVehicleSavedPlate("")}
-              aria-label="Fechar aviso"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-green-700 transition hover:bg-green-100"
-            >
-              <X size={16} />
-            </button>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/inspection/new?vehicle=${savedVehicle.id}&type=entry`
+                  )
+                }
+                className="min-h-11 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700"
+              >
+                Iniciar vistoria de entrada
+              </button>
+              <button
+                type="button"
+                onClick={() => setSavedVehicle(null)}
+                className="min-h-11 rounded-xl border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-800 transition hover:bg-green-100"
+              >
+                Agora não
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -1135,8 +1247,16 @@ export default function DashboardPage() {
                   type="search"
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Buscar por placa ou motorista"
-                  aria-label="Buscar por placa ou motorista"
+                  placeholder={
+                    isStore
+                      ? "Buscar por placa, marca, modelo ou responsável"
+                      : "Buscar por placa ou motorista"
+                  }
+                  aria-label={
+                    isStore
+                      ? "Buscar por placa, marca, modelo ou responsável"
+                      : "Buscar por placa ou motorista"
+                  }
                   className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-100"
                 />
               </div>
@@ -1287,8 +1407,11 @@ export default function DashboardPage() {
                       <thead>
                         <tr className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-3 font-semibold">Veículo</th>
+                          {isStore ? (
+                            <th className="px-4 py-3 font-semibold">Tipo</th>
+                          ) : null}
                           <th className="px-4 py-3 font-semibold">
-                            Motorista
+                            {isStore ? "Responsável" : "Motorista"}
                           </th>
                           <th className="px-4 py-3 font-semibold">
                             Data e hora
@@ -1334,6 +1457,13 @@ export default function DashboardPage() {
                                     "-"}
                                 </p>
                               </td>
+                              {isStore ? (
+                                <td className="border-t border-slate-200 px-4 py-3 text-sm text-slate-700">
+                                  {formatInspectionType(
+                                    inspection.inspection_type
+                                  )}
+                                </td>
+                              ) : null}
                               <td className="border-t border-slate-200 px-4 py-3 text-sm text-slate-700">
                                 {inspection.driver_name || "-"}
                               </td>
@@ -1434,9 +1564,19 @@ export default function DashboardPage() {
                           </div>
 
                           <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                            {isStore ? (
+                              <div className="col-span-2">
+                                <dt className="text-xs text-slate-500">Tipo</dt>
+                                <dd className="text-slate-700">
+                                  {formatInspectionType(
+                                    inspection.inspection_type
+                                  )}
+                                </dd>
+                              </div>
+                            ) : null}
                             <div className="col-span-2">
                               <dt className="text-xs text-slate-500">
-                                Motorista
+                                {isStore ? "Responsável" : "Motorista"}
                               </dt>
                               <dd className="text-slate-700">
                                 {inspection.driver_name || "-"}
@@ -1652,7 +1792,7 @@ export default function DashboardPage() {
                   <div>Veículo</div>
                   <div>{isStore ? "Operação" : "Periodicidade"}</div>
                   <div>Última vistoria</div>
-                  <div>{isStore ? "Cor" : "Status"}</div>
+                  <div>{isStore ? "Ações" : "Status"}</div>
                 </div>
 
                 {filteredVehicles.length === 0 ? (
@@ -1692,9 +1832,11 @@ export default function DashboardPage() {
                             <p className="text-sm text-slate-700">
                               {fullName || vehicle.model || "-"}
                             </p>
-                            {vehicle.year ? (
+                            {vehicle.year || (isStore && vehicle.color) ? (
                               <p className="text-xs text-slate-500">
-                                {vehicle.year}
+                                {[vehicle.year, isStore ? vehicle.color : null]
+                                  .filter(Boolean)
+                                  .join(" · ")}
                               </p>
                             ) : null}
                           </div>
@@ -1736,13 +1878,25 @@ export default function DashboardPage() {
                           </div>
 
                           {isStore ? (
-                            <div>
-                              <p className="text-xs text-slate-500 md:hidden">
-                                Cor
-                              </p>
-                              <p className="text-sm text-slate-700">
-                                {vehicle.color || "-"}
-                              </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `/inspection/new?vehicle=${vehicle.id}`
+                                  )
+                                }
+                                className="inline-flex min-h-11 items-center rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700"
+                              >
+                                Nova vistoria
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openVehicleHistory(vehicle.id)}
+                                className="inline-flex min-h-11 items-center rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                              >
+                                Histórico
+                              </button>
                             </div>
                           ) : (
                           <div>

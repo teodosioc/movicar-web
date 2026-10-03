@@ -19,6 +19,16 @@ import {
   persistSessionOdometer,
 } from '@/app/lib/services/inspectionSessions'
 import { toValidGeoPair } from '@/app/lib/geoCoordinates'
+import {
+  companyViewLabel,
+  resolveCompanyView,
+  type CompanyView,
+} from '@/app/lib/companyView'
+import {
+  INSPECTION_TYPE_LABELS,
+  isInspectionType,
+  type InspectionType,
+} from '@/app/lib/inspectionType'
 
 type InspectionItem = InspectionWizardItem
 
@@ -26,7 +36,15 @@ type Vehicle = {
   id: string
   plate: string
   inspection_frequency?: 'daily' | 'weekly' | 'biweekly' | 'monthly' | null
+  /** Campos da loja; só são consultados na visão de loja. */
+  brand?: string | null
+  model?: string | null
+  operation_type?: string | null
 }
+
+const INSPECTION_TYPE_OPTIONS = Object.keys(
+  INSPECTION_TYPE_LABELS
+) as InspectionType[]
 
 type MoviCarUser = {
   id?: string
@@ -74,6 +92,11 @@ export default function NewInspectionPage() {
   const [finishing, setFinishing] = useState(false)
   const [savingOdometer, setSavingOdometer] = useState(false)
   const [odometerKm, setOdometerKm] = useState('')
+  const [view, setView] = useState<CompanyView | null>(null)
+  const [inspectionType, setInspectionType] = useState<InspectionType | ''>('')
+
+  // Loja: a vistoria tem tipo (entrada, saída...). Locadora segue sem tipo.
+  const isStore = view?.company.company_type === 'vehicle_store'
 
   useEffect(() => {
     setStepCompleted(false)
@@ -142,22 +165,39 @@ export default function NewInspectionPage() {
         active: resolved.active,
       }
 
+      // Empresa em exibição: a do próprio usuário ou, para o admin, a visão
+      // escolhida no dashboard. Checklist e veículos seguem essa empresa.
+      const companyView = await resolveCompanyView({
+        id: resolved.id,
+        role: String(resolved.role ?? ''),
+      })
+      const storeView = companyView.company.company_type === 'vehicle_store'
+      setView(companyView)
+
       const itemsPromise = supabase
         .from('inspection_items')
         .select('*')
+        .eq('company_type', companyView.company.company_type)
         .order('order_index')
 
       const baseVehiclesQuery = supabase
         .from('vehicles')
-        .select('id, plate, inspection_frequency')
+        .select(
+          storeView
+            ? 'id, plate, inspection_frequency, brand, model, operation_type'
+            : 'id, plate, inspection_frequency'
+        )
+        .eq('company_id', companyView.company.id)
 
-      const vehiclesPromise =
-        loggedUser.role === 'admin'
-          ? baseVehiclesQuery.eq('active', true).order('plate')
-          : baseVehiclesQuery
-              .eq('assigned_user_id', loggedUser.id)
-              .eq('active', true)
-              .order('plate')
+      const isManager =
+        loggedUser.role === 'admin' || loggedUser.role === 'lojista'
+
+      const vehiclesPromise = isManager
+        ? baseVehiclesQuery.eq('active', true).order('plate')
+        : baseVehiclesQuery
+            .eq('assigned_user_id', loggedUser.id)
+            .eq('active', true)
+            .order('plate')
 
       const [
         { data: itemsData, error: itemsError },
@@ -167,11 +207,24 @@ export default function NewInspectionPage() {
       if (itemsError) throw itemsError
       if (vehiclesError) throw vehiclesError
 
-      setItems(itemsData || [])
-      setVehicles(vehiclesData || [])
+      const vehicleRows = (vehiclesData ?? []) as unknown as Vehicle[]
 
-      if (vehiclesData && vehiclesData.length === 1) {
-        setSelectedVehicle(vehiclesData[0].id)
+      setItems(itemsData || [])
+      setVehicles(vehicleRows)
+
+      // Veículo e tipo podem vir do dashboard (cadastro ou lista de veículos).
+      const params = new URLSearchParams(window.location.search)
+      const requestedVehicle = params.get('vehicle')
+      const requestedType = params.get('type')
+
+      if (requestedVehicle && vehicleRows.some((v) => v.id === requestedVehicle)) {
+        setSelectedVehicle(requestedVehicle)
+      } else if (vehicleRows.length === 1) {
+        setSelectedVehicle(vehicleRows[0].id)
+      }
+
+      if (storeView && isInspectionType(requestedType)) {
+        setInspectionType(requestedType)
       }
     } catch (error) {
       console.error(error)
@@ -266,10 +319,47 @@ export default function NewInspectionPage() {
 
     if (!items.length) return
 
+    // Na loja, a vistoria só começa depois de escolhido o tipo.
+    if (isStore && !inspectionType) return
+
     if (sessionId || creatingSession) return
 
     void getOrCreateSession(selectedVehicle, items)
-  }, [selectedVehicle, items, sessionId, creatingSession, getOrCreateSession])
+  }, [
+    selectedVehicle,
+    items,
+    sessionId,
+    creatingSession,
+    getOrCreateSession,
+    isStore,
+    inspectionType,
+  ])
+
+  const selectedVehicleRow = useMemo(
+    () => vehicles.find((v) => v.id === selectedVehicle) ?? null,
+    [vehicles, selectedVehicle]
+  )
+
+  // Devolução de consignado só vale para veículo consignado.
+  const availableInspectionTypes = useMemo(
+    () =>
+      INSPECTION_TYPE_OPTIONS.filter(
+        (type) =>
+          type !== 'consignment_return' ||
+          selectedVehicleRow?.operation_type === 'consigned'
+      ),
+    [selectedVehicleRow]
+  )
+
+  useEffect(() => {
+    if (
+      inspectionType &&
+      selectedVehicleRow &&
+      !availableInspectionTypes.includes(inspectionType)
+    ) {
+      setInspectionType('')
+    }
+  }, [inspectionType, selectedVehicleRow, availableInspectionTypes])
 
   const handleVehicleChange = (vehicleId: string) => {
     setSelectedVehicle(vehicleId)
@@ -353,6 +443,11 @@ export default function NewInspectionPage() {
 
   const handleFinish = async () => {
     if (!sessionId || !selectedVehicle || finishing) return
+
+    if (isStore && !inspectionType) {
+      alert('Selecione o tipo da vistoria antes de finalizar.')
+      return
+    }
 
     if (!stepCompleted) {
       if (currentWizardStep?.kind === 'odometer') {
@@ -448,6 +543,9 @@ export default function NewInspectionPage() {
           address: null,
           started_at: sessionData.started_at,
           finished_at: sessionData.finished_at ?? finishedAt,
+          ...(isStore && inspectionType
+            ? { inspection_type: inspectionType }
+            : {}),
         })
         .select('id')
         .single()
@@ -472,6 +570,7 @@ export default function NewInspectionPage() {
       setSelectedVehicle('')
       setSessionId(null)
       setOdometerKm('')
+      setInspectionType('')
       alert('Vistoria finalizada com sucesso!')
       router.push('/dashboard')
     } catch (error) {
@@ -506,6 +605,11 @@ export default function NewInspectionPage() {
             <p className="text-sm text-slate-600">
               Registre as mídias do veículo por etapa no MoviCar.
             </p>
+            {view?.canSwitch ? (
+              <p className="mt-1 text-sm font-medium text-slate-700">
+                {companyViewLabel(view.company)}
+              </p>
+            ) : null}
           </div>
 
           <button
@@ -531,7 +635,9 @@ export default function NewInspectionPage() {
             <option value="">Selecione veículo</option>
             {vehicles.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.plate}
+                {[v.plate, [v.brand, v.model].filter(Boolean).join(' ')]
+                  .filter(Boolean)
+                  .join(' · ')}
               </option>
             ))}
           </select>
@@ -542,7 +648,41 @@ export default function NewInspectionPage() {
             </p>
           )}
 
-          {selectedVehicle && (
+          {isStore && selectedVehicle && (
+            <fieldset className="mb-4">
+              <legend className="text-sm font-medium text-slate-700">
+                Tipo da vistoria <span className="text-red-500">*</span>
+              </legend>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {availableInspectionTypes.map((type) => {
+                  const isActive = inspectionType === type
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setInspectionType(type)}
+                      disabled={finishing}
+                      className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isActive
+                          ? 'border-emerald-700 bg-emerald-700 text-white shadow-sm'
+                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {INSPECTION_TYPE_LABELS[type]}
+                    </button>
+                  )
+                })}
+              </div>
+              {!inspectionType && (
+                <p className="mt-2 text-sm text-slate-500">
+                  Selecione o tipo da vistoria para começar.
+                </p>
+              )}
+            </fieldset>
+          )}
+
+          {selectedVehicle && (!isStore || inspectionType) && (
             <>
               <div className="mb-4">
                 <div className="mb-1 flex justify-between text-sm text-slate-700">

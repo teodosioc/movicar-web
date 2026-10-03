@@ -17,6 +17,16 @@ export type InspectionHistoryFilters = {
   perPage: number
 }
 
+/**
+ * Empresa em exibição. Com companyId, as consultas se limitam aos veículos
+ * dessa empresa (necessário para o admin, que enxerga todas). includeType traz
+ * o tipo da vistoria, usado apenas na visão de loja.
+ */
+export type InspectionHistoryScope = {
+  companyId?: string
+  includeType?: boolean
+}
+
 export type InspectionHistoryVehicle = {
   id: string
   plate: string
@@ -36,6 +46,7 @@ export type InspectionHistoryRow = {
   started_at: string | null
   finished_at: string | null
   created_at: string | null
+  inspection_type?: string | null
   vehicles?: InspectionHistoryVehicle | InspectionHistoryVehicle[] | null
 }
 
@@ -95,16 +106,34 @@ function sanitizeSearchTerm(term: string): string {
  * created_at com desempate por id, e contagem total real para a paginação.
  */
 export async function fetchInspectionHistory(
-  filters: InspectionHistoryFilters
+  filters: InspectionHistoryFilters,
+  scope: InspectionHistoryScope = {}
 ): Promise<InspectionHistoryResult> {
   const term = sanitizeSearchTerm(filters.search)
 
   let matchedVehicleIds: string[] | null = null
   if (term) {
-    const { data: vehicleMatches, error: vehiclesError } = await supabase
+    // Placa com ou sem hífen/espaço encontra o mesmo veículo; marca e modelo
+    // também entram na busca.
+    const plateTerm = term.replace(/[^A-Za-z0-9]/g, "")
+    const vehicleConditions = [
+      `plate.ilike.%${term}%`,
+      `brand.ilike.%${term}%`,
+      `model.ilike.%${term}%`,
+    ]
+    if (plateTerm && plateTerm !== term) {
+      vehicleConditions.push(`plate.ilike.%${plateTerm}%`)
+    }
+
+    let vehiclesQuery = supabase
       .from("vehicles")
       .select("id")
-      .ilike("plate", `%${term}%`)
+      .or(vehicleConditions.join(","))
+    if (scope.companyId) {
+      vehiclesQuery = vehiclesQuery.eq("company_id", scope.companyId)
+    }
+
+    const { data: vehicleMatches, error: vehiclesError } = await vehiclesQuery
 
     if (vehiclesError) throw vehiclesError
     matchedVehicleIds = (vehicleMatches ?? []).map((v) => v.id)
@@ -124,7 +153,8 @@ export async function fetchInspectionHistory(
         started_at,
         finished_at,
         created_at,
-        vehicles (
+        ${scope.includeType ? "inspection_type," : ""}
+        vehicles${scope.companyId ? "!inner" : ""} (
           id,
           plate,
           model,
@@ -134,6 +164,10 @@ export async function fetchInspectionHistory(
       `,
       { count: "exact" }
     )
+
+  if (scope.companyId) {
+    query = query.eq("vehicles.company_id", scope.companyId)
+  }
 
   if (term) {
     const conditions = [`driver_name.ilike.%${term}%`]
@@ -167,7 +201,7 @@ export async function fetchInspectionHistory(
   if (error) throw error
 
   return {
-    rows: (data ?? []) as InspectionHistoryRow[],
+    rows: (data ?? []) as unknown as InspectionHistoryRow[],
     total: count ?? 0,
   }
 }
@@ -219,14 +253,25 @@ export async function fetchOdometerHistoryForVehicles(
 }
 
 /** Total de vistorias criadas hoje (fuso local), independente dos filtros do histórico. */
-export async function countInspectionsToday(): Promise<number> {
+export async function countInspectionsToday(
+  companyId?: string
+): Promise<number> {
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-  const { count, error } = await supabase
+  let query = supabase
     .from("inspections")
-    .select("id", { count: "exact", head: true })
+    .select(companyId ? "id, vehicles!inner(company_id)" : "id", {
+      count: "exact",
+      head: true,
+    })
     .gte("created_at", start.toISOString())
+
+  if (companyId) {
+    query = query.eq("vehicles.company_id", companyId)
+  }
+
+  const { count, error } = await query
 
   if (error) throw error
   return count ?? 0

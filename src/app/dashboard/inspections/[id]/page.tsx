@@ -10,6 +10,8 @@ import InspectionMediaGallery, {
   type GalleryMediaItem,
 } from "@/app/components/InspectionMediaGallery";
 import { ArrowLeft, Images, MapPin } from "lucide-react";
+import { formatInspectionType } from "@/app/lib/inspectionType";
+import { VEHICLE_OPERATION_LABELS } from "@/app/components/VehicleForm";
 
 type Inspection = {
   id: string;
@@ -24,19 +26,8 @@ type Inspection = {
   started_at: string | null;
   finished_at: string | null;
   created_at: string | null;
-  vehicles?:
-    | {
-        plate: string;
-        model: string | null;
-        brand: string | null;
-        year: string | null;
-      }
-    | {
-        plate: string;
-        model: string | null;
-        brand: string | null;
-        year: string | null;
-      }[];
+  inspection_type?: string | null;
+  vehicles?: InspectionVehicle | InspectionVehicle[];
 };
 
 type InspectionVehicle = {
@@ -44,6 +35,15 @@ type InspectionVehicle = {
   model: string | null;
   brand: string | null;
   year: string | null;
+  company_id?: string | null;
+};
+
+/** Dados exibidos só para vistorias de loja. */
+type StoreDetails = {
+  companyName: string;
+  color: string | null;
+  chassis: string | null;
+  operation_type: string | null;
 };
 
 function getInspectionVehicle(
@@ -107,6 +107,7 @@ export default function InspectionDetailPage() {
     null
   );
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  const [storeDetails, setStoreDetails] = useState<StoreDetails | null>(null);
 
   // Fotos na sequência das etapas da vistoria; vídeos ao final. Mídias sem
   // etapa identificada permanecem na lista (ordenadas por último entre as
@@ -151,7 +152,8 @@ export default function InspectionDetailPage() {
               plate,
               model,
               brand,
-              year
+              year,
+              company_id
             )
           `
         )
@@ -159,6 +161,35 @@ export default function InspectionDetailPage() {
         .single();
 
       if (inspectionError) throw inspectionError;
+
+      // Vistoria de loja: tipo, cor, chassi e operação. A empresa vem do
+      // próprio veículo, então o detalhe nunca mistura dados de outra empresa.
+      let store: StoreDetails | null = null;
+      const vehicleCompanyId = getInspectionVehicle(
+        inspectionData.vehicles
+      )?.company_id;
+      if (vehicleCompanyId) {
+        const { data: company } = await supabase
+          .from("companies")
+          .select("name, company_type")
+          .eq("id", vehicleCompanyId)
+          .maybeSingle();
+
+        if (company?.company_type === "vehicle_store") {
+          const { data: extra } = await supabase
+            .from("vehicles")
+            .select("color, chassis, operation_type")
+            .eq("id", inspectionData.vehicle_id)
+            .maybeSingle();
+
+          store = {
+            companyName: company.name,
+            color: extra?.color ?? null,
+            chassis: extra?.chassis ?? null,
+            operation_type: extra?.operation_type ?? null,
+          };
+        }
+      }
 
       let kmPeriod: number | null = null;
       if (inspectionData.vehicle_id) {
@@ -250,6 +281,7 @@ export default function InspectionDetailPage() {
       );
 
       setInspection(inspectionData);
+      setStoreDetails(store);
       setKmTraveledInPeriod(kmPeriod);
       setMedia(mediaWithUrls);
     } catch (err) {
@@ -318,8 +350,48 @@ export default function InspectionDetailPage() {
               <p className="font-semibold">{vehicleName || "-"}</p>
             </div>
 
+            {storeDetails ? (
+              <>
+                <div>
+                  <p className="text-slate-500">Empresa</p>
+                  <p className="font-semibold">{storeDetails.companyName}</p>
+                </div>
+
+                <div>
+                  <p className="text-slate-500">Tipo da vistoria</p>
+                  <p className="font-semibold">
+                    {formatInspectionType(inspection.inspection_type)}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-slate-500">Operação</p>
+                  <p>
+                    {storeDetails.operation_type &&
+                    storeDetails.operation_type in VEHICLE_OPERATION_LABELS
+                      ? VEHICLE_OPERATION_LABELS[
+                          storeDetails.operation_type as keyof typeof VEHICLE_OPERATION_LABELS
+                        ]
+                      : "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-slate-500">Cor</p>
+                  <p>{storeDetails.color || "-"}</p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <p className="text-slate-500">Chassi</p>
+                  <p className="break-all">{storeDetails.chassis || "-"}</p>
+                </div>
+              </>
+            ) : null}
+
             <div>
-              <p className="text-slate-500">Motorista</p>
+              <p className="text-slate-500">
+                {storeDetails ? "Responsável" : "Motorista"}
+              </p>
               <p>
                 {inspection.driver_name
                   ? inspection.driver_name.split(" ")[0]
