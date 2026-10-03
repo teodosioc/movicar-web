@@ -42,6 +42,12 @@ import {
   type InspectionHistoryVehicle,
   type OdometerHistoryRow,
 } from "@/app/lib/services/inspectionHistory";
+import VehicleForm, {
+  STORE_VEHICLE_COLUMNS,
+  VEHICLE_OPERATION_LABELS,
+  type SavedVehicle,
+  type VehicleOperationType,
+} from "@/app/components/VehicleForm";
 
 type MoviCarUser = {
   id?: string;
@@ -62,7 +68,13 @@ type VehicleRow = {
   inspection_frequency: "daily" | "weekly" | "biweekly" | "monthly" | null;
   last_inspection_at: string | null;
   next_inspection_due: string | null;
+  /** Campos da loja; só são consultados para o perfil lojista. */
+  operation_type?: VehicleOperationType | null;
+  color?: string | null;
 };
+
+const RENTAL_VEHICLE_COLUMNS =
+  "id, plate, model, brand, year, active, assigned_user_id, inspection_frequency, last_inspection_at, next_inspection_due";
 
 type DashboardTab = "vistorias" | "veiculos";
 
@@ -404,6 +416,8 @@ export default function DashboardPage() {
   const [user, setUser] = useState<MoviCarUser | null>(null);
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [todayInspections, setTodayInspections] = useState(0);
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const [vehicleSavedPlate, setVehicleSavedPlate] = useState("");
 
   const [initialState] = useState(parseStateFromUrl);
   const [activeTab, setActiveTab] = useState<DashboardTab>(initialState.tab);
@@ -463,18 +477,9 @@ export default function DashboardPage() {
           supabase
             .from("vehicles")
             .select(
-              `
-                id,
-                plate,
-                model,
-                brand,
-                year,
-                active,
-                assigned_user_id,
-                inspection_frequency,
-                last_inspection_at,
-                next_inspection_due
-              `
+              role === "lojista"
+                ? STORE_VEHICLE_COLUMNS
+                : RENTAL_VEHICLE_COLUMNS
             )
             .eq("active", true)
             .order("plate", { ascending: true }),
@@ -483,7 +488,7 @@ export default function DashboardPage() {
 
         if (vehiclesRes.error) throw vehiclesRes.error;
 
-        const vehicleRows = (vehiclesRes.data ?? []) as VehicleRow[];
+        const vehicleRows = (vehiclesRes.data ?? []) as unknown as VehicleRow[];
         setVehicles(vehicleRows);
         setTodayInspections(todayCount);
 
@@ -620,6 +625,15 @@ export default function DashboardPage() {
     router.push(`/dashboard/inspections/${id}`);
   };
 
+  const handleVehicleSaved = (vehicle: SavedVehicle) => {
+    setVehicles((current) =>
+      [...current, vehicle].sort((a, b) => a.plate.localeCompare(b.plate))
+    );
+    setShowVehicleForm(false);
+    setVehicleSavedPlate(vehicle.plate);
+    setActiveTab("veiculos");
+  };
+
   const updateFilters = useCallback(
     (changes: Partial<InspectionHistoryFilters>) => {
       setFilters((current) => ({ ...current, ...changes, page: 1 }));
@@ -670,8 +684,12 @@ export default function DashboardPage() {
     return [...overdue, ...dueToday];
   }, [vehicles]);
 
+  // Loja não tem vistoria periódica: blocos e filtros de periodicidade ficam
+  // ocultos e a listagem mostra todos os veículos em estoque.
+  const isStore = String(user?.role ?? "").toLowerCase() === "lojista";
+
   const filteredVehicles = useMemo(() => {
-    if (!vehicleFilter) return vehicles;
+    if (isStore || !vehicleFilter) return vehicles;
     // "Pendências" = Atrasados + Vencem hoje, mesmo universo e mesma ordem
     // do bloco de pendências (maiores atrasos primeiro).
     if (vehicleFilter === "pendencias") {
@@ -683,7 +701,7 @@ export default function DashboardPage() {
           getVehicleInspectionStatus(v).label
         ] === vehicleFilter
     );
-  }, [vehicles, vehicleFilter, pendingVehicles]);
+  }, [isStore, vehicles, vehicleFilter, pendingVehicles]);
 
   const historyFilterVehicle = useMemo(
     () => vehicles.find((v) => v.id === filters.vehicleId) ?? null,
@@ -757,16 +775,33 @@ export default function DashboardPage() {
                 </h1>
                 <p className="mt-1 text-sm text-slate-600">
                   Bem-vindo,{" "}
-                  <span className="font-semibold">{user?.name || "Admin"}</span>
+                  <span className="font-semibold">
+                    {user?.name || (isStore ? "Lojista" : "Admin")}
+                  </span>
                 </p>
                 <p className="mt-2 text-sm text-slate-500">
-                  Acompanhe vistorias, veículos e pendências operacionais em
-                  tempo real.
+                  {isStore
+                    ? "Cadastre veículos e acompanhe as vistorias da sua loja."
+                    : "Acompanhe vistorias, veículos e pendências operacionais em tempo real."}
                 </p>
               </div>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
+              {isStore ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleSavedPlate("");
+                    setShowVehicleForm(true);
+                  }}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-green-600 bg-white px-5 py-3 text-sm font-semibold text-green-700 transition hover:bg-green-50"
+                >
+                  <Car size={18} />
+                  Cadastrar veículo
+                </button>
+              ) : null}
+
               <button
                 onClick={handleNewInspection}
                 className="flex items-center justify-center gap-2 rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700"
@@ -785,6 +820,46 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
+        {isStore && showVehicleForm ? (
+          <section
+            aria-label="Cadastrar veículo"
+            className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <h2 className="text-lg font-bold text-slate-900">
+              Cadastrar veículo
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Informe os dados do veículo que está entrando na loja.
+            </p>
+            <div className="mt-4">
+              <VehicleForm
+                onSaved={handleVehicleSaved}
+                onCancel={() => setShowVehicleForm(false)}
+              />
+            </div>
+          </section>
+        ) : null}
+
+        {isStore && vehicleSavedPlate ? (
+          <div
+            role="status"
+            className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+          >
+            <span>
+              Veículo <strong>{vehicleSavedPlate}</strong> cadastrado com
+              sucesso.
+            </span>
+            <button
+              type="button"
+              onClick={() => setVehicleSavedPlate("")}
+              aria-label="Fechar aviso"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-green-700 transition hover:bg-green-100"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : null}
 
         <section className="mt-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
           <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -809,7 +884,7 @@ export default function DashboardPage() {
           >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-slate-500 sm:text-sm">
-                Veículos ativos
+                {isStore ? "Veículos em estoque" : "Veículos ativos"}
               </p>
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-green-100">
                 <Car className="text-green-600" size={16} />
@@ -823,6 +898,8 @@ export default function DashboardPage() {
             </p>
           </button>
 
+          {isStore ? null : (
+          <>
           <button
             type="button"
             onClick={() => openVehiclesTab("atrasados")}
@@ -864,8 +941,11 @@ export default function DashboardPage() {
               Ver vencimentos <ChevronRight size={12} />
             </p>
           </button>
+          </>
+          )}
         </section>
 
+        {isStore ? null : (
         <section
           aria-label="Pendências de vistoria"
           className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -978,6 +1058,7 @@ export default function DashboardPage() {
             </>
           )}
         </section>
+        )}
 
         <div
           role="tablist"
@@ -1440,6 +1521,7 @@ export default function DashboardPage() {
           </section>
         ) : (
           <section className="mt-4 space-y-4">
+            {isStore ? null : (
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-2xl font-bold text-slate-900">
                 Resumo da frota
@@ -1507,13 +1589,18 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+            )}
 
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-2xl font-bold text-slate-900">Veículos</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Periodicidade, última vistoria e próxima vistoria prevista.
+                {isStore
+                  ? "Veículos em estoque, tipo da operação e última vistoria."
+                  : "Periodicidade, última vistoria e próxima vistoria prevista."}
               </p>
 
+              {isStore ? null : (
+              <>
               <div
                 role="group"
                 aria-label="Filtrar veículos por situação"
@@ -1556,21 +1643,25 @@ export default function DashboardPage() {
                   &quot;. Toque no filtro ativo para removê-lo.
                 </p>
               ) : null}
+              </>
+              )}
 
               <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
                 <div className="hidden grid-cols-5 gap-4 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
                   <div>Placa</div>
                   <div>Veículo</div>
-                  <div>Periodicidade</div>
+                  <div>{isStore ? "Operação" : "Periodicidade"}</div>
                   <div>Última vistoria</div>
-                  <div>Status</div>
+                  <div>{isStore ? "Cor" : "Status"}</div>
                 </div>
 
                 {filteredVehicles.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-slate-500">
-                    {vehicleFilter
-                      ? "Nenhum veículo nessa situação."
-                      : "Nenhum veículo encontrado."}
+                    {isStore
+                      ? "Nenhum veículo cadastrado. Use \"Cadastrar veículo\" para começar."
+                      : vehicleFilter
+                        ? "Nenhum veículo nessa situação."
+                        : "Nenhum veículo encontrado."}
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-200">
@@ -1608,6 +1699,20 @@ export default function DashboardPage() {
                             ) : null}
                           </div>
 
+                          {isStore ? (
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Operação
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {vehicle.operation_type
+                                  ? VEHICLE_OPERATION_LABELS[
+                                      vehicle.operation_type
+                                    ]
+                                  : "-"}
+                              </p>
+                            </div>
+                          ) : (
                           <div>
                             <p className="text-xs text-slate-500 md:hidden">
                               Periodicidade
@@ -1619,6 +1724,7 @@ export default function DashboardPage() {
                               Próxima: {formatDate(vehicle.next_inspection_due)}
                             </p>
                           </div>
+                          )}
 
                           <div>
                             <p className="text-xs text-slate-500 md:hidden">
@@ -1629,6 +1735,16 @@ export default function DashboardPage() {
                             </p>
                           </div>
 
+                          {isStore ? (
+                            <div>
+                              <p className="text-xs text-slate-500 md:hidden">
+                                Cor
+                              </p>
+                              <p className="text-sm text-slate-700">
+                                {vehicle.color || "-"}
+                              </p>
+                            </div>
+                          ) : (
                           <div>
                             <p className="text-xs text-slate-500 md:hidden">
                               Status
@@ -1646,6 +1762,7 @@ export default function DashboardPage() {
                               </p>
                             ) : null}
                           </div>
+                          )}
                         </div>
                       );
                     })}

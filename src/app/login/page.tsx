@@ -81,7 +81,7 @@ export default function LoginPage() {
 
       const role = String(profile.role ?? "").toLowerCase();
 
-      if (role !== "admin" && role !== "motorista") {
+      if (role !== "admin" && role !== "motorista" && role !== "lojista") {
         await supabase.auth.signOut();
         setError("Perfil inválido para este acesso.");
         return;
@@ -94,10 +94,10 @@ export default function LoginPage() {
 
       cacheProfileFromSession(profile, authData.session, normalizedEmail);
 
-      if (role === "admin") {
-        router.push("/dashboard");
-      } else {
+      if (role === "motorista") {
         router.push("/driver");
+      } else {
+        router.push("/dashboard");
       }
     } catch (err) {
       console.error("Erro no login:", err);
