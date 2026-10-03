@@ -384,7 +384,7 @@ export default function InspectionDetailPage() {
           {media.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhuma mídia encontrada.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-2 items-start gap-4 md:grid-cols-3">
               {media.map((m) => (
                 <div
                   key={m.id}
