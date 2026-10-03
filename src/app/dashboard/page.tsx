@@ -529,6 +529,42 @@ export default function DashboardPage() {
         if (vehiclesRes.error) throw vehiclesRes.error;
 
         const vehicleRows = (vehiclesRes.data ?? []) as unknown as VehicleRow[];
+
+        // Loja: "Última vistoria" vem da vistoria concluída mais recente de
+        // cada veículo. Na locadora o campo segue vindo do próprio veículo.
+        if (isStore && vehicleRows.length > 0) {
+          const { data: lastRows, error: lastError } = await supabase
+            .from("inspections")
+            .select("vehicle_id, finished_at")
+            .in(
+              "vehicle_id",
+              vehicleRows.map((v) => v.id)
+            )
+            .eq("status", "completed")
+            .not("finished_at", "is", null)
+            .order("finished_at", { ascending: false });
+
+          if (cancelled) return;
+
+          if (lastError) {
+            console.error("Erro ao carregar últimas vistorias:", lastError);
+          } else {
+            const latestByVehicle = new Map<string, string>();
+            for (const row of (lastRows ?? []) as {
+              vehicle_id: string;
+              finished_at: string;
+            }[]) {
+              if (!latestByVehicle.has(row.vehicle_id)) {
+                latestByVehicle.set(row.vehicle_id, row.finished_at);
+              }
+            }
+            for (const vehicle of vehicleRows) {
+              vehicle.last_inspection_at =
+                latestByVehicle.get(vehicle.id) ?? vehicle.last_inspection_at;
+            }
+          }
+        }
+
         setVehicles(vehicleRows);
         setTodayInspections(todayCount);
         setDriverNamesByUserId({});
