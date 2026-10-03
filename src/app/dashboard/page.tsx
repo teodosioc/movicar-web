@@ -55,6 +55,7 @@ import {
   type CompanyView,
 } from "@/app/lib/companyView";
 import { formatInspectionType } from "@/app/lib/inspectionType";
+import { normalizePlate } from "@/app/lib/plate";
 
 type MoviCarUser = {
   id?: string;
@@ -429,6 +430,7 @@ export default function DashboardPage() {
     plate: string;
   } | null>(null);
   const [view, setView] = useState<CompanyView | null>(null);
+  const [vehiclePlateSearch, setVehiclePlateSearch] = useState("");
 
   const [initialState] = useState(parseStateFromUrl);
   const [activeTab, setActiveTab] = useState<DashboardTab>(initialState.tab);
@@ -702,6 +704,7 @@ export default function DashboardPage() {
       perPage: current.perPage,
     }));
     setVehicleFilter("");
+    setVehiclePlateSearch("");
     setShowVehicleForm(false);
     setSavedVehicle(null);
     setView({ ...view, company });
@@ -757,8 +760,18 @@ export default function DashboardPage() {
     return [...overdue, ...dueToday];
   }, [vehicles]);
 
+  // Loja: busca por placa, com ou sem hífen, espaço ou maiúsculas.
+  const vehiclePlateTerm = isStore ? normalizePlate(vehiclePlateSearch) : "";
+
   const filteredVehicles = useMemo(() => {
-    if (isStore || !vehicleFilter) return vehicles;
+    if (isStore) {
+      return vehiclePlateTerm
+        ? vehicles.filter((v) =>
+            normalizePlate(v.plate ?? "").includes(vehiclePlateTerm)
+          )
+        : vehicles;
+    }
+    if (!vehicleFilter) return vehicles;
     // "Pendências" = Atrasados + Vencem hoje, mesmo universo e mesma ordem
     // do bloco de pendências (maiores atrasos primeiro).
     if (vehicleFilter === "pendencias") {
@@ -770,7 +783,7 @@ export default function DashboardPage() {
           getVehicleInspectionStatus(v).label
         ] === vehicleFilter
     );
-  }, [isStore, vehicles, vehicleFilter, pendingVehicles]);
+  }, [isStore, vehicles, vehicleFilter, pendingVehicles, vehiclePlateTerm]);
 
   const historyFilterVehicle = useMemo(
     () => vehicles.find((v) => v.id === filters.vehicleId) ?? null,
@@ -1739,7 +1752,24 @@ export default function DashboardPage() {
                   : "Periodicidade, última vistoria e próxima vistoria prevista."}
               </p>
 
-              {isStore ? null : (
+              {isStore ? (
+                <div className="relative mt-4 sm:max-w-sm">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="search"
+                    value={vehiclePlateSearch}
+                    onChange={(e) => setVehiclePlateSearch(e.target.value)}
+                    placeholder="Buscar pela placa"
+                    aria-label="Buscar veículo pela placa"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    className="min-h-11 w-full rounded-2xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-base text-slate-900 outline-none ring-green-600 focus:ring-2"
+                  />
+                </div>
+              ) : (
               <>
               <div
                 role="group"
@@ -1798,7 +1828,9 @@ export default function DashboardPage() {
                 {filteredVehicles.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-slate-500">
                     {isStore
-                      ? "Nenhum veículo cadastrado. Use \"Cadastrar veículo\" para começar."
+                      ? vehiclePlateTerm
+                        ? "Nenhum veículo encontrado com essa placa."
+                        : "Nenhum veículo cadastrado. Use \"Cadastrar veículo\" para começar."
                       : vehicleFilter
                         ? "Nenhum veículo nessa situação."
                         : "Nenhum veículo encontrado."}
