@@ -39,12 +39,10 @@ type Vehicle = {
   /** Campos da loja; só são consultados na visão de loja. */
   brand?: string | null
   model?: string | null
-  operation_type?: string | null
 }
 
-const INSPECTION_TYPE_OPTIONS = Object.keys(
-  INSPECTION_TYPE_LABELS
-) as InspectionType[]
+// MVP da loja: só entrada e saída. Os demais tipos continuam válidos no banco.
+const INSPECTION_TYPE_OPTIONS: InspectionType[] = ['entry', 'exit']
 
 type MoviCarUser = {
   id?: string
@@ -184,7 +182,7 @@ export default function NewInspectionPage() {
         .from('vehicles')
         .select(
           storeView
-            ? 'id, plate, inspection_frequency, brand, model, operation_type'
+            ? 'id, plate, inspection_frequency, brand, model'
             : 'id, plate, inspection_frequency'
         )
         .eq('company_id', companyView.company.id)
@@ -223,7 +221,11 @@ export default function NewInspectionPage() {
         setSelectedVehicle(vehicleRows[0].id)
       }
 
-      if (storeView && isInspectionType(requestedType)) {
+      if (
+        storeView &&
+        isInspectionType(requestedType) &&
+        INSPECTION_TYPE_OPTIONS.includes(requestedType)
+      ) {
         setInspectionType(requestedType)
       }
     } catch (error) {
@@ -334,32 +336,6 @@ export default function NewInspectionPage() {
     isStore,
     inspectionType,
   ])
-
-  const selectedVehicleRow = useMemo(
-    () => vehicles.find((v) => v.id === selectedVehicle) ?? null,
-    [vehicles, selectedVehicle]
-  )
-
-  // Devolução de consignado só vale para veículo consignado.
-  const availableInspectionTypes = useMemo(
-    () =>
-      INSPECTION_TYPE_OPTIONS.filter(
-        (type) =>
-          type !== 'consignment_return' ||
-          selectedVehicleRow?.operation_type === 'consigned'
-      ),
-    [selectedVehicleRow]
-  )
-
-  useEffect(() => {
-    if (
-      inspectionType &&
-      selectedVehicleRow &&
-      !availableInspectionTypes.includes(inspectionType)
-    ) {
-      setInspectionType('')
-    }
-  }, [inspectionType, selectedVehicleRow, availableInspectionTypes])
 
   const handleVehicleChange = (vehicleId: string) => {
     setSelectedVehicle(vehicleId)
@@ -654,7 +630,7 @@ export default function NewInspectionPage() {
                 Tipo da vistoria <span className="text-red-500">*</span>
               </legend>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                {availableInspectionTypes.map((type) => {
+                {INSPECTION_TYPE_OPTIONS.map((type) => {
                   const isActive = inspectionType === type
                   return (
                     <button
